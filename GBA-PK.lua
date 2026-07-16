@@ -142,6 +142,8 @@ local MenuPrevKeys = 0
 local MenuScreen = "connect" -- "connect" or "name" (nickname editor)
 local NameBuf = { "A" }      -- working buffer for the D-pad name editor
 local NamePos = 1            -- cursor position in NameBuf
+local LocalInBattle = 0      -- GBA-PK: local player's in-battle flag, broadcast to others
+local LocalSkin = 0          -- GBA-PK: local player's chosen skin index (0 = default)
 local MainBattleFunc_Saved = 0
 
 local PositionData = {
@@ -5973,6 +5975,8 @@ function Player:new(id, socket, nickname, GameID, startX, startY, direction, map
 	self.SpriteType = spritetype or 0 --feet, bike, surf
 	self.Visible = 1
 	self.IsInBattle = false
+	self.Status = 0            --GBA-PK: bit 0 = in battle (broadcast to others)
+	self.Skin = 0             --GBA-PK: skin index (0 = default protagonist)
 	self.Timeout = ClientTimeout
 	self.isAnimating = 0
 	self.UpdateCoords = 0
@@ -6203,7 +6207,21 @@ function Player:GetPlayerData()
 		["sprite"] = self.SpriteType,
 		["id"] = self.GameID,
 		["anim_data"] = self.AnimationData,
+		["status"] = self.Status,
+		["skin"] = self.Skin,
 	}
+end
+
+function Player:GetStatus()
+	return self.Status or 0
+end
+
+function Player:GetSkin()
+	return self.Skin or 0
+end
+
+function Player:IsBattling()
+	return (self.Status or 0) & 1 ~= 0
 end
 
 function Player:SetMapData(data)
@@ -6231,6 +6249,8 @@ function Player:SetPlayerData(data)
 		self.SpriteType = data["sprite"]
 		self.GameID = data["id"]
 		self.AnimationData = data["anim_data"]
+		if data["status"] ~= nil then self.Status = data["status"] end
+		if data["skin"] ~= nil then self.Skin = data["skin"] end
 	end
 end
 
@@ -10552,7 +10572,9 @@ function ReceiveData(SocketMain)
 				packet.Elevation = string.byte(string.sub(packet.ExtraData, 33, 33))
 				packet.LevelCap = string.byte(string.sub(packet.ExtraData, 34, 34))
 				packet.PokemonCap = string.byte(string.sub(packet.ExtraData, 35, 35))
-				--36-43 is filler
+				packet.Status = string.byte(string.sub(packet.ExtraData, 36, 36))  --GBA-PK: bit0 = in battle
+				packet.Skin = string.byte(string.sub(packet.ExtraData, 37, 37))    --GBA-PK: skin index
+				--38-43 is filler
 				packet.RequestBytes = packet.RequestBytes - 1000
 				packet.MapData = {
 					["x"] = packet.CurrentX,
@@ -10575,6 +10597,8 @@ function ReceiveData(SocketMain)
 					["sprite"] = packet.SpriteType,
 					["id"] = packet.GameID,
 					["anim_data"] = packet.AnimationData,
+					["status"] = packet.Status,
+					["skin"] = packet.Skin,
 				}
 			end
 			
@@ -11072,7 +11096,7 @@ end
 
 --Send Data to clients
 function CreatePacket(RequestTemp, PacketTemp, DataToUse, SendToID)
-	local FillerStuff = "FFFFFFFF"
+	local FillerStuff = "FFFFFF"   -- GBA-PK: 6 bytes (2 repurposed for status+skin at offsets 36-37)
 	local PacketMap = {}
 	local PacketPlayer = {}
 	local PacketPlayerID, PacketGameID = 0, 0
@@ -11151,12 +11175,24 @@ function CreatePacket(RequestTemp, PacketTemp, DataToUse, SendToID)
 	Packets["level_cap"] = safeStringChar(Level_Cap)
 	--1 byte
 	Packets["pokemon_cap"] = safeStringChar(Pokemon_Cap)
+	--GBA-PK: status (bit0 = in battle) and skin index. For the local player use the
+	--live values; when relaying another player use their stored values.
+	local statusByte, skinByte = 0, 0
+	if DataToUse == PlayerID then
+		statusByte, skinByte = LocalInBattle, LocalSkin
+	elseif player then
+		statusByte, skinByte = player:GetStatus(), player:GetSkin()
+	end
+	--1 byte (ExtraData offset 36)
+	Packets["status"] = safeStringChar(statusByte & 0xFF)
+	--1 byte (ExtraData offset 37)
+	Packets["skin"] = safeStringChar(skinByte & 0xFF)
 	PacketNickname = "FFFF"
 	PacketPlayerID = Cap(PacketPlayerID + 1000, 4)
 	PacketSendToID = Cap(PacketSendToID + 1000, 4)
 	PacketTemp = Cap(PacketTemp + 1000, 4)
 	Packet = PacketGameID .. PacketNickname .. PacketPlayerID .. PacketSendToID .. RequestTemp .. PacketTemp
-	Packet = Packet .. Packets["battle"] .. Packets["direction"] .. Packets["mapid"] .. Packets["prev_mapid"] .. Packets["pos"] .. Packets["prev_pos"] .. Packets["border_pos"] .. Packets["connection"] .. Packets["entrance"] .. Packets["animation"] .. Packets["gender"] .. Packets["sprite"] .. Packets["animation_data"] .. Packets["metatile"] .. Packets["elevation"] .. Packets["level_cap"] .. Packets["pokemon_cap"]
+	Packet = Packet .. Packets["battle"] .. Packets["direction"] .. Packets["mapid"] .. Packets["prev_mapid"] .. Packets["pos"] .. Packets["prev_pos"] .. Packets["border_pos"] .. Packets["connection"] .. Packets["entrance"] .. Packets["animation"] .. Packets["gender"] .. Packets["sprite"] .. Packets["animation_data"] .. Packets["metatile"] .. Packets["elevation"] .. Packets["level_cap"] .. Packets["pokemon_cap"] .. Packets["status"] .. Packets["skin"]
 	Packet = Packet .. FillerStuff .. "U"
 	if #Packet ~= 64 then
 		console:log("PACKET NOT CORRECT SIZE! SIZE: " .. #Packet .. ". SETTING FILLER PACKET")
@@ -14636,6 +14672,15 @@ end
 
 function MainLogic()
 	if updateTimers("logic") and (Connected or Hosting) then
+		--GBA-PK: track whether the local player is in a battle (native wild/trainer
+		--or a link/PvP battle). gBattleTypeFlags is non-zero during any battle.
+		local battleFlags = 0
+		if gAddress[GameID].gBattleTypeFlags then
+			battleFlags = emu:read32(gAddress[GameID].gBattleTypeFlags)
+		end
+		LocalInBattle = (battleFlags ~= 0) and 1 or 0
+		local selfPlayer = FindPlayerByID(PlayerID)
+		if selfPlayer then selfPlayer.Status = LocalInBattle end
 				--VARS--
 		local Startvaraddress = gAddress[GameID].gSpecialVar_8000
 		
@@ -15237,7 +15282,9 @@ function who()
 	console:log("Players in session (" .. #players .. "/" .. MaxPlayers .. "):")
 	for _, p in ipairs(players) do
 		local you = (p:GetID() == PlayerID) and " (you)" or ""
-		console:log("  [" .. p:GetID() .. "] " .. tostring(p:GetNickname()) .. you)
+		local battling = (p:GetID() == PlayerID and LocalInBattle == 1) or (p:GetID() ~= PlayerID and p:IsBattling())
+		local tag = battling and "  [in battle]" or ""
+		console:log("  [" .. p:GetID() .. "] " .. tostring(p:GetNickname()) .. you .. tag)
 	end
 end
 
