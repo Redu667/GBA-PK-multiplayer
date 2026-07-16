@@ -4,6 +4,20 @@ local ServerType = "c" --can change to "h"/"s" for host, "c" for client
 local Nickname = "" --this can be up to 10 utf8 chars long.
 local Experimental_Features = false --set this to true to enable experimental NPC feature. Currently is only for testing
 
+--Romhack support (experimental). Most Gen 3 romhacks are built on top of an official base
+--game (usually Firered or Emerald). If your romhack keeps its base game's code it is detected
+--automatically and just works. If it uses a CUSTOM game code and is not detected, set
+--RomHackBaseGame below to the base game it was built from and the script will treat it as that
+--game. Valid values (leave "" for normal auto-detection):
+--  "BPR1" Firered 1.0    "BPR2" Firered 1.1
+--  "BPG1" Leafgreen 1.0  "BPG2" Leafgreen 1.1
+--  "BPEE" Emerald
+--  "AXV1" Ruby 1.0       "AXV2" Ruby 1.1/1.2
+--  "AXP1" Sapphire 1.0   "AXP2" Sapphire 1.1/1.2
+--Note: romhacks that relocate RAM structures (e.g. moved save blocks) may still need custom
+--addresses; this override assumes the base game's memory layout.
+local RomHackBaseGame = "" --e.g. "BPR1" for a Firered-based romhack with a custom game code
+
 --don't edit, these are the flags for Battle, which you can edit
 local BATTLE_FLAGS = {
 	HEAL_PRE_BATTLE = 1, --heals all pokemon pre battle after saving them.
@@ -6848,7 +6862,19 @@ function GetGameVersion()
 	GameCode = emu:getGameCode()
 	ConsoleForText:moveCursor(0,1)
 	local romadr = 0x80000BC
-	if (GameCode == "AGB-BPRE") or (GameCode == "AGB-ZBDM") then
+	if RomHackBaseGame ~= "" then
+		if gAddress[RomHackBaseGame] then
+			ConsoleForText:print("Romhack override active. Treating ROM as " .. RomHackBaseGame .. ". Script enabled.")
+			if DebugMessages.GameType then console:log("GAME ID: " .. GameCode .. " -> forced base game " .. RomHackBaseGame) end
+			EnableScript = true
+			GameID = RomHackBaseGame
+			Language = "en"
+			LanguageTableType = "Western"
+		else
+			ConsoleForText:print("Invalid RomHackBaseGame '" .. RomHackBaseGame .. "'. Script disabled.")
+			EnableScript = false
+		end
+	elseif (GameCode == "AGB-BPRE") or (GameCode == "AGB-ZBDM") then
 		local GameVersion = emu:read16(romadr)
 		if GameVersion == 0x6800 then
 			ConsoleForText:print("Pokemon Firered 1.0 detected. Script enabled.")
