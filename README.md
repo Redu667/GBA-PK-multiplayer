@@ -51,6 +51,10 @@ client and server script.
      `join("their.ip.address")`).
    - **Set name** — type a nickname with the D-pad (Up/Down change the letter, Left/Right
      move the cursor, **A** confirms, **B** backspaces).
+   - **Set skin** — change how you look to other players. Use **Left/Right** to cycle
+     through a curated set of the game's own overworld sprites (you keep looking normal to
+     yourself; everyone else sees the skin). You can also type `setskin(id)` in the
+     scripting box to use any raw overworld graphics id.
 
 That's it. Up to 4 players (host + 3) can see, walk around, trade and battle with each
 other in the overworld. Everyone must use the same port (default `4096`); the host may

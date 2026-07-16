@@ -143,7 +143,8 @@ local MenuScreen = "connect" -- "connect" or "name" (nickname editor)
 local NameBuf = { "A" }      -- working buffer for the D-pad name editor
 local NamePos = 1            -- cursor position in NameBuf
 local LocalInBattle = 0      -- GBA-PK: local player's in-battle flag, broadcast to others
-local LocalSkin = 0          -- GBA-PK: local player's chosen skin index (0 = default)
+local LocalSkin = 0          -- GBA-PK: local player's chosen skin (overworld graphics id; 0 = default)
+local SkinPalSlot = {}       -- GBA-PK: per-draw-slot OAM palette slot for skinned players (this frame)
 local MainBattleFunc_Saved = 0
 
 local PositionData = {
@@ -9647,8 +9648,78 @@ function AddDrawPlayer(id, AnimationID, GenderID)
 	table.insert(drawplayertable[id], drawplayertableitem)
 end
 
+--GBA-PK: render another player using an arbitrary overworld sprite from the ROM
+--(a "skin"), instead of the built-in protagonist tiles. gfxId is the game's own
+--overworld graphics id. We draw the facing frame (down/up/left; right reuses the
+--left frame and is flipped by DrawPlayer), and load the sprite's palette into a
+--dedicated OAM slot so its colours are correct. Returns true on success.
+function DrawSkinnedPlayer(tileset, gfxId, frame)
+	if not ROMCARD then return false end
+	local ga = gAddress[GameID]
+	if not ga.gGraphicsInfo or not ga.sObjectEventSpritePalettes then return false end
+	local ROM_LO, ROM_HI = 0x8000000, 0xA000000
+	local sprite = ROMCARD:read32(ga.gGraphicsInfo + 4 * gfxId)
+	if sprite < ROM_LO or sprite >= ROM_HI then return false end
+	local paletteTag = ROMCARD:read16(sprite + 2)
+	local imageTable = ROMCARD:read32(sprite + 28)
+	if imageTable < ROM_LO or imageTable >= ROM_HI then return false end
+	--frame: 0 = face south (down), 1 = face north (up), 2 = face west (left/right, flipped by DrawPlayer)
+	local frameData = ROMCARD:read32(imageTable + 8 * (frame or 0))
+	if frameData < ROM_LO or frameData >= ROM_HI then return false end
+	--write one 16x32 frame (64 words) into this draw-slot's tile bank
+	local addr = 0x6013C00 - (tileset * 0x600)
+	for i = 0, 63 do
+		emu:write32(addr + 4 * i, ROMCARD:read32(frameData + 4 * i))
+	end
+	--locate the sprite's palette by tag and copy it (16 colours = 8 words) into a
+	--dedicated OAM object-palette slot for this draw slot
+	local palPtr
+	for i = 0, 15 do
+		local tag = ROMCARD:read16(ga.sObjectEventSpritePalettes + 8 * i + 4)
+		if tag == paletteTag then
+			palPtr = ROMCARD:read32(ga.sObjectEventSpritePalettes + 8 * i)
+			break
+		end
+	end
+	if palPtr and palPtr >= ROM_LO and palPtr < ROM_HI then
+		local palSlot = 8 + (tileset % 4)   --slots 8..11 for the four draw slots
+		local udst = ga.gPaletteUnfaded + 0x200 + palSlot * 32
+		local fdst = ga.gPaletteFaded + 0x200 + palSlot * 32
+		for i = 0, 7 do
+			local w = ROMCARD:read32(palPtr + 4 * i)
+			emu:write32(udst + 4 * i, w)
+			emu:write32(fdst + 4 * i, w)
+		end
+		SkinPalSlot[tileset] = palSlot
+	else
+		SkinPalSlot[tileset] = nil
+	end
+	return true
+end
+
 function CreatePlayer(id, tileset)
+	SkinPalSlot[tileset] = nil
 	local AnimationTable = gAddress[GameID].sAnimationTable
+	--GBA-PK: if this player has a skin and is on foot, draw the ROM overworld sprite.
+	--Facing is derived from the pose name the mod already chose ("...Left/Up/Down..."),
+	--which is reliable across poses and games; right reuses the left frame and is flipped.
+	local sp = FindPlayerByID(id)
+	if sp and sp:GetSkin() ~= 0 and (sp.SpriteType == 0 or sp.SpriteType == nil) then
+		local frame = 0
+		local items = drawplayertable[id]
+		if items and items[1] then
+			local tbl = AnimationTable
+			if items[1].Gender == 1 then tbl = tbl + 1 end
+			local st = spriteData[tbl]
+			local name = (st and st[items[1].Animation] and st[items[1].Animation].Animation) or ""
+			if string.find(name, "Up") then frame = 1
+			elseif string.find(name, "Left") or string.find(name, "Right") then frame = 2
+			else frame = 0 end
+		end
+		if DrawSkinnedPlayer(tileset, sp:GetSkin(), frame) then
+			return
+		end
+	end
 	if drawplayertable[id] then
 		for _, item in ipairs(drawplayertable[id]) do
 			local anim = AnimationTable
@@ -9877,7 +9948,7 @@ function DynamicRender()
 				CreatePlayer(id, IDsToDraw)
 				CreateSprite(id, IDsToDraw)
 				if DebugMessages.Render then console:log("ANIMATION DATA OF PLAYER " .. id .. ": " .. renderplayertable[id].AnimationData) end
-				DrawPlayer(IDsToDraw, FinalMapX, FinalMapY, renderplayertable[id].SpriteType, renderplayertable[id].Direction, renderplayertable[id].AnimationFrame, renderplayertable[id].AnimationCycle, renderplayertable[id].SurfFrame, renderplayertable[id].AnimationData, id)
+				DrawPlayer(IDsToDraw, FinalMapX, FinalMapY, renderplayertable[id].SpriteType, renderplayertable[id].Direction, renderplayertable[id].AnimationFrame, renderplayertable[id].AnimationCycle, renderplayertable[id].SurfFrame, renderplayertable[id].AnimationData, id, nil, SkinPalSlot[IDsToDraw])
 				IDsToDraw = IDsToDraw + 1
 			end
 		elseif drawplayertable[id] and renderplayertable[id] then
@@ -14680,7 +14751,7 @@ function MainLogic()
 		end
 		LocalInBattle = (battleFlags ~= 0) and 1 or 0
 		local selfPlayer = FindPlayerByID(PlayerID)
-		if selfPlayer then selfPlayer.Status = LocalInBattle end
+		if selfPlayer then selfPlayer.Status = LocalInBattle selfPlayer.Skin = LocalSkin end
 				--VARS--
 		local Startvaraddress = gAddress[GameID].gSpecialVar_8000
 		
@@ -15254,6 +15325,18 @@ function setname(name)
 	console:log("Nickname set to " .. Nickname)
 end
 
+--GBA-PK: set your overworld skin to a raw graphics id (0 = default protagonist).
+--Mainly for discovering/testing sprite ids; the menu offers a curated list.
+function setskin(n)
+	n = tonumber(n) or 0
+	if n < 0 then n = 0 end
+	if n > 255 then n = 255 end
+	LocalSkin = n
+	local sp = FindPlayerByID(PlayerID)
+	if sp then sp.Skin = n end
+	console:log("Skin set to graphics id " .. n .. (n == 0 and " (default)" or ""))
+end
+
 function host()
 	if Hosting or Connected then console:log("Already in a session. Use disconnect() first.") return end
 	if not EnableScript then console:log("Script not enabled (unsupported game?).") return end
@@ -15370,8 +15453,36 @@ local MenuUI = pickMenuUI()
 local KEY_A, KEY_B     = 0x1, 0x2
 local KEY_RIGHT, KEY_LEFT, KEY_UP, KEY_DOWN = 0x10, 0x20, 0x40, 0x80
 
-local MenuOptions = { "Host a game", "Join a game", "Set name" }
+local MenuOptions = { "Host a game", "Join a game", "Set name", "Set skin" }
 local NameChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+--Curated overworld-sprite "skins" per game family (the game's own graphics ids).
+--0 = your normal protagonist. Ids that don't exist on a game safely fall back to
+--the protagonist, so this list can be tuned freely.
+local SkinSets = {
+	FRLG = { 0, 5, 7, 9, 16, 21 },
+	RSE  = { 0, 5, 7, 9, 16, 25 },
+}
+local SkinSel = 1  -- index into the current game's skin list
+
+local function currentSkinList()
+	local t = (GameID and gAddress[GameID] and gAddress[GameID].sGameType) or "FRLG"
+	return SkinSets[t] or SkinSets.FRLG
+end
+
+local function currentSkinLabel()
+	local list = currentSkinList()
+	local gfx = list[SkinSel] or 0
+	if gfx == 0 then return "Default" end
+	return "Style " .. (SkinSel - 1)
+end
+
+local function applySkin()
+	local list = currentSkinList()
+	LocalSkin = list[SkinSel] or 0
+	local sp = FindPlayerByID(PlayerID)
+	if sp then sp.Skin = LocalSkin end
+end
 
 local function nameString()
 	return table.concat(NameBuf)
@@ -15386,11 +15497,12 @@ function DrawConnectMenu()
 			"Host a game",
 			"Join " .. IPAddress,
 			"Set name (" .. (Nickname ~= "" and Nickname or "auto") .. ")",
+			"Set skin < " .. currentSkinLabel() .. " >",
 		},
 		selected = MenuSel,
 		footer = {
 			"Port " .. Port .. "   Up to " .. MaxPlayers .. " players.",
-			"Or type host() / join(\"IP\").",
+			"Skin: Left/Right to change. Others see it.",
 		},
 	})
 end
@@ -15452,13 +15564,29 @@ local function handleConnectKeys(pressed)
 		MenuSel = MenuSel + 1
 		if MenuSel > #MenuOptions then MenuSel = 1 end
 		DrawConnectMenu()
+	elseif (pressed & KEY_LEFT) ~= 0 then
+		if MenuSel == 4 then
+			local n = #currentSkinList()
+			SkinSel = SkinSel - 1; if SkinSel < 1 then SkinSel = n end
+			applySkin(); DrawConnectMenu()
+		end
+	elseif (pressed & KEY_RIGHT) ~= 0 then
+		if MenuSel == 4 then
+			local n = #currentSkinList()
+			SkinSel = SkinSel + 1; if SkinSel > n then SkinSel = 1 end
+			applySkin(); DrawConnectMenu()
+		end
 	elseif (pressed & KEY_A) ~= 0 then
 		if MenuSel == 1 then
 			MenuActive = false; host()
 		elseif MenuSel == 2 then
 			MenuActive = false; join()
-		else
+		elseif MenuSel == 3 then
 			startNameEditor()
+		else
+			local n = #currentSkinList()
+			SkinSel = SkinSel + 1; if SkinSel > n then SkinSel = 1 end
+			applySkin(); DrawConnectMenu()
 		end
 	end
 end
