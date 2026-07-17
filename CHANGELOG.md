@@ -1,14 +1,22 @@
 # Changelog
 
+## v1.1.1
+
+- **On-screen menu fixes (mGBA 0.11+).** Two bugs in the v1.1.0 on-screen overlay:
+  - The panel background could disappear behind the text while navigating the menu.
+    `render()` now fully clears the layer and repaints the panel opaque (blend off) before
+    drawing the text (blend on), so every redraw lands a solid background.
+  - After choosing an option the menu could slide below the game window and become
+    un-interactable. Positioning and compositing now run from a per-frame callback keyed off
+    a visibility flag, decoupled from `render()`, so the overlay can never get stranded
+    off-screen while the menu is open.
+
 ## v1.1.0
 
 - **On-screen menu (mGBA 0.11+).** The connect/setup menu now draws directly on the game
   screen using mGBA 0.11's canvas/painter scripting API, instead of only in the scripting
   console tab. It falls back to the console panel automatically on mGBA 0.10.x. Bundles
   `SourceSans3-Regular.otf` (SIL OFL) for the on-screen text; keep it next to `GBA-PK.lua`.
-  The overlay fully clears and repaints its panel each frame and is positioned from a
-  per-frame callback, so the panel background stays solid as you navigate and the menu can
-  never get stuck off-screen after choosing an option.
 - **mGBA 0.11 compatibility fix.** mGBA 0.11's `emu:getGameCode()` returns the bare 4-char
   code (e.g. `BPEE`) instead of 0.10's `AGB-BPEE`; the game code is now normalized so
   detection works on both versions. Without this the script disabled itself on 0.11.
