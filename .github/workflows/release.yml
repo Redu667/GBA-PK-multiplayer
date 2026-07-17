@@ -1,0 +1,90 @@
+name: Release
+
+# Cut a GitHub release from the current code. Runs on GitHub's own runners under
+# the repo's built-in GITHUB_TOKEN (which has contents: write), so it can create
+# the tag, publish the release and upload the assets.
+#
+# To publish: Actions tab -> "Release" -> "Run workflow". Set the version (e.g.
+# 1.1.1). Leave "draft" checked if you want to review the release before it goes
+# public; uncheck it to publish immediately.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (e.g. 1.1.1)"
+        required: true
+        default: "1.1.1"
+      draft:
+        description: "Create as a draft (review before it goes public)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Sanity-check the version matches the script
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          SCRIPT_VERSION="$(grep -oE 'ScriptVersion = "[^"]+"' GBA-PK.lua | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
+          echo "Requested: $VERSION   ScriptVersion in GBA-PK.lua: $SCRIPT_VERSION"
+          if [ "$VERSION" != "$SCRIPT_VERSION" ]; then
+            echo "::warning::Requested version ($VERSION) does not match ScriptVersion in GBA-PK.lua ($SCRIPT_VERSION)."
+          fi
+
+      - name: Build release assets
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          STAGE="GBA-PK-v${VERSION}"
+          mkdir -p "$STAGE"
+          cp GBA-PK.lua \
+             SourceSans3-Regular.otf \
+             SourceSans3-Regular.LICENSE.txt \
+             README.md \
+             CHANGELOG.md \
+             "$STAGE"/
+          zip -r "GBA-PK-v${VERSION}.zip" "$STAGE"
+          ls -la "GBA-PK-v${VERSION}.zip"
+
+      - name: Extract this version's changelog notes
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          # Grab the section between "## vX.Y.Z" and the next "## v..." heading.
+          awk -v ver="## v${VERSION}" '
+            $0 == ver {grab=1; next}
+            /^## v/ {if (grab) exit}
+            grab {print}
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "No matching CHANGELOG section for v${VERSION}; using a default note."
+            echo "Release v${VERSION}." > RELEASE_NOTES.md
+          fi
+          echo "----- release notes -----"; cat RELEASE_NOTES.md
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          DRAFT_FLAG=""
+          if [ "${{ github.event.inputs.draft }}" = "true" ]; then DRAFT_FLAG="--draft"; fi
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Release v${VERSION} already exists; uploading/overwriting assets."
+            gh release upload "v${VERSION}" \
+              "GBA-PK-v${VERSION}.zip" GBA-PK.lua SourceSans3-Regular.otf --clobber
+          else
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
+              --notes-file RELEASE_NOTES.md \
+              $DRAFT_FLAG \
+              "GBA-PK-v${VERSION}.zip" \
+              GBA-PK.lua \
+              SourceSans3-Regular.otf
+          fi
