@@ -11,8 +11,10 @@ including most romhacks and randomized ROMs.
 - See other players walk around the overworld in real time (up to 4 by default, 8 supported).
 - **Trade** and **battle** with other players over the link-cable emulation.
 - One unified script for both hosting and joining — no separate client/server files.
-- Easy setup: an in-game D-pad menu (Host / Join / Set name / Set skin / Soullocke setup)
-  plus scripting-box commands (`host()`, `join("IP")`, `setname()`, `who()`, `status()`, …).
+- Easy setup: a D-pad menu (Host / Join / Set name / Set skin / Soullocke setup) driven
+  from the game window — while it's open your inputs go only to the menu, not the game, and
+  **Select** toggles it. Plus scripting-box commands (`host()`, `join("IP")`, `setname()`,
+  `who()`, `status()`, …).
 - Works across all official Gen 3 games and regional variants, with a `RomHackBaseGame`
   override for custom-code romhacks.
 

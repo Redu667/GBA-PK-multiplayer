@@ -16108,7 +16108,9 @@ local MenuUI = pickMenuUI()
 -- ===================== GBA-PK connect / name menu ====================
 -- Key bits returned by emu:getKeys()
 local KEY_A, KEY_B     = 0x1, 0x2
+local KEY_SELECT, KEY_START = 0x4, 0x8
 local KEY_RIGHT, KEY_LEFT, KEY_UP, KEY_DOWN = 0x10, 0x20, 0x40, 0x80
+local KEY_ALL = 0x3FF  -- A,B,Select,Start,Right,Left,Up,Down,R,L
 
 local MenuOptions = { "Host a game", "Join a game", "Set name", "Set skin", "Soullocke setup" }
 local SoulMenuSel = 1
@@ -16151,7 +16153,7 @@ function DrawConnectMenu()
 	MenuUI = pickMenuUI()
 	MenuUI:render({
 		title = "===== GBA-PK Multiplayer v" .. ScriptVersion .. " =====",
-		subtitle = "D-pad to move, A to choose.",
+		subtitle = "Focus the game window. D-pad: move  A: choose  Select: close",
 		options = {
 			"Host a game",
 			"Join " .. IPAddress,
@@ -16161,8 +16163,8 @@ function DrawConnectMenu()
 		},
 		selected = MenuSel,
 		footer = {
-			"Port " .. Port .. "   Up to " .. MaxPlayers .. " players.",
-			"Skin: Left/Right to change. Others see it.",
+			"Your inputs drive this menu only (the game stays put).",
+			"Skin: Left/Right to change. Port " .. Port .. ", up to " .. MaxPlayers .. " players.",
 		},
 	})
 end
@@ -16329,12 +16331,39 @@ local function handleNameKeys(pressed)
 	end
 end
 
+-- The menu runs on the keysRead callback (fires *before* the core consumes the
+-- frame's input), so while the menu is open we can swallow the D-pad/A/B with
+-- emu:clearKeys — the presses drive ONLY the menu and never leak into the game
+-- (your character won't move, Start won't open the game menu, etc.). Select
+-- opens/closes the menu. (mGBA 0.10.x can't draw over the game screen, so the
+-- menu itself still shows in this "GBA-PK" console tab; keep it visible and
+-- focus the game window to use it.)
 function MenuLogic()
-	if not MenuActive then return end
-	if Hosting or Connected then MenuActive = false return end
+	if not emu then return end
+	if Hosting or Connected then
+		if MenuActive then MenuActive = false end
+		MenuPrevKeys = emu:getKeys()
+		return
+	end
 	local k = emu:getKeys()
 	local pressed = k & (~MenuPrevKeys)
 	MenuPrevKeys = k
+	if not MenuActive then
+		-- Not in the menu: let the game have its input, but Select (re)opens the menu.
+		if (pressed & KEY_SELECT) ~= 0 and EnableScript then
+			ShowConnectMenu()
+			emu:clearKeys(KEY_SELECT)
+		end
+		return
+	end
+	-- Menu is open: swallow ALL GBA input so nothing reaches the game underneath.
+	emu:clearKeys(KEY_ALL)
+	if (pressed & KEY_SELECT) ~= 0 then
+		MenuActive = false
+		if ConsoleForText then ConsoleForText:clear() end
+		console:log("Menu closed. Press Select (on the game) to reopen it.")
+		return
+	end
 	if pressed == 0 then return end
 	if MenuScreen == "name" then
 		handleNameKeys(pressed)
@@ -16428,7 +16457,7 @@ if NativeLua then
 else
 	SocketMain = socket:tcp()
 
-	console:log("Started GBA-PK v" .. ScriptVersion .. ". Type help() for commands, or use the in-game menu.")
+	console:log("Started GBA-PK v" .. ScriptVersion .. ". Open the \"GBA-PK\" tab above, focus the game, and use the D-pad (it drives the menu only). Select closes/opens it. Or type help() for commands.")
 	if not (emu == nil) then
 		StartScript()
 	end
@@ -16439,8 +16468,9 @@ else
 	callbacks:add("frame", MainLogic)
 	callbacks:add("frame", Connection)
 	callbacks:add("frame", Render)
-	callbacks:add("frame", MenuLogic)
 
-
+	-- MenuLogic runs on keysRead (before the core reads input) so it can swallow
+	-- the menu's key presses; it must run before Interaction, which also reads keys.
+	callbacks:add("keysRead", MenuLogic)
 	callbacks:add("keysRead", Interaction)
 end
