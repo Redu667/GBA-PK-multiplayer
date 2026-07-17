@@ -45,13 +45,16 @@ Romhacks that relocate RAM structures (for example, hacks that move the save blo
 Everyone uses the **same single file**, `GBA-PK.lua` — there is no longer a separate
 client and server script.
 
-1. Open your Gen 3 Pokémon ROM in mGBA (0.10.x).
+1. Open your Gen 3 Pokémon ROM in mGBA (0.10.x or 0.11).
 2. Load **`GBA-PK.lua`** via **Tools → Scripting → Load script…**
-3. A small menu appears in the **GBA-PK** tab of the scripting window. Keep that tab
-   visible, then **click the game window** and drive the menu with the emulator's buttons —
-   while the menu is open your presses go **only to the menu** (your character won't move,
-   Start won't open the game menu). **Select** closes/reopens the menu at any time before
-   you connect. Use **D-pad Up/Down** and **A** to choose:
+   - On **mGBA 0.11+**, keep `SourceSans3-Regular.otf` (bundled here) **next to
+     `GBA-PK.lua`** — that lets the menu draw right on the game screen.
+3. **Click the game window** and drive the menu with the emulator's buttons. On mGBA
+   **0.11+** the menu appears **on the game screen**; on **0.10.x** it appears in the
+   **GBA-PK** tab of the scripting window (keep that tab visible). Either way, while the
+   menu is open your presses go **only to the menu** (your character won't move, Start
+   won't open the game menu), and **Select** closes/reopens it. Use **D-pad Up/Down** and
+   **A** to choose:
    - **Host a game** — others connect to your IP address.
    - **Join a game** — connect to the host's IP (set `ServerIP` in the config, or use
      `join("their.ip.address")`).
@@ -76,14 +79,13 @@ need to port-forward it for players over the internet.
   appears above their overworld avatar so you can tell at a glance who's busy. It
   clears automatically when their battle ends.
 
-> **Note on the menu:** mGBA 0.10.x's scripting API can't draw over the game screen, so the
-> menu lives in the scripting window's **GBA-PK** tab. It's still driven by the emulator's
-> D-pad, but while it's open the script **swallows those inputs** (via `keysRead` +
-> `clearKeys`) so they don't leak into the game — you focus the game window, and the
-> presses drive only the menu. **Select** toggles the menu open/closed. The menu is
-> rendered through a swappable backend (`ConsoleMenuUI`), with a `ScreenMenuUI`
-> stub ready for when a newer mGBA gains a screen-draw API — at which point the menu can
-> move on-screen without changing any menu logic.
+> **Note on the menu:** the menu is drawn through a swappable backend. On **mGBA 0.11+** it
+> uses the canvas/painter scripting API to draw **on the game screen** (`ScreenMenuUI`,
+> needs the bundled font next to the script). On **0.10.x**, whose scripting API can't draw
+> over the game, it falls back to the scripting window's **GBA-PK** tab (`ConsoleMenuUI`).
+> Either way, while the menu is open the script **swallows the emulator's inputs** (via
+> `keysRead` + `clearKeys`) so they drive only the menu and never leak into the game, and
+> **Select** toggles it open/closed. The menu logic is identical across both backends.
 
 ### Configuration
 

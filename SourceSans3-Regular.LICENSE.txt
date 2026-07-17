@@ -1,0 +1,19 @@
+SourceSans3-Regular.otf is bundled so the in-game menu can render on-screen on
+mGBA 0.11+. It is Adobe's Source Sans 3, the same font mGBA itself ships with.
+
+Copyright 2010-2020 Adobe (http://www.adobe.com/), with Reserved Font Name
+'Source'. Source is a trademark of Adobe in the United States and/or other
+countries.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The full license text is available at:
+    https://openfontlicense.org
+    https://github.com/adobe-fonts/source-sans/blob/release/LICENSE.md
+
+Under the OFL, this font may be used, studied, modified and redistributed freely
+as long as it is not sold by itself. The font and its derivatives cannot be
+released under any other type of license. The requirement for fonts to remain
+under this license does not apply to any document created using the font.
+
+The font is optional: if it (or mGBA's canvas drawing API) is unavailable, the
+GBA-PK menu falls back to the scripting-console panel and works without it.

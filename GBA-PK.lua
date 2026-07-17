@@ -10,7 +10,7 @@ local Nickname   = ""            -- up to 10 chars. Blank = use your in-game nam
 local ServerIP   = "127.0.0.1"   -- the host's IP address (only used when joining)
 local Port       = 4096          -- must be the same for everyone in the session
 local MaxPlayers = 4             -- players per session (supports up to 8)
-local ScriptVersion = "1.0.0"    -- GBA-PK release version
+local ScriptVersion = "1.1.0"    -- GBA-PK release version
 -- ======================================================================
 local IPAddress  = ServerIP      -- internal alias (do not edit)
 local ServerType = "c"           -- internal, derived from Role/commands
@@ -6930,7 +6930,12 @@ function LoadPalette(source, dest)
 end
 
 function GetGameVersion()
-	GameCode = emu:getGameCode()
+	GameCode = emu:getGameCode() or ""
+	--Normalize the code: mGBA 0.10.x returns "AGB-BPEE" while 0.11 returns "BPEE".
+	--Reduce to the trailing 4-char code and re-add the "AGB-" the checks below expect,
+	--so detection works on both mGBA versions.
+	local code = GameCode:match("([%w]+)%s*$") or GameCode
+	GameCode = "AGB-" .. code
 	ConsoleForText:moveCursor(0,1)
 	local romadr = 0x80000BC
 	if RomHackBaseGame ~= "" then
@@ -16000,6 +16005,7 @@ function host()
 	Role = "host"
 	ServerType = "h"
 	MenuActive = false
+	HideMenuOverlay()
 	if ConsoleForText then ConsoleForText:clear() end
 	CreateNetwork()
 	console:log("Hosting on port " .. Port .. ". Tell friends to join your IP address.")
@@ -16012,6 +16018,7 @@ function join(ip)
 	Role = "join"
 	ServerType = "c"
 	MenuActive = false
+	HideMenuOverlay()
 	if ConsoleForText then ConsoleForText:clear() end
 	console:log("Connecting to " .. IPAddress .. ":" .. Port .. " ...")
 	ConnectNetwork()
@@ -16090,13 +16097,88 @@ function ConsoleMenuUI:render(screen)
 	end
 end
 
--- Stub on-screen overlay backend for mGBA 0.11+ (draw over the game itself).
-local ScreenMenuUI = {}
+function ConsoleMenuUI:hide()
+	if ConsoleForText then ConsoleForText:clear() end
+end
+
+-- On-screen overlay backend for mGBA 0.11+ (draws the menu over the game itself
+-- using the canvas/painter scripting API). Needs the bundled font file next to
+-- GBA-PK.lua; if the draw API or font isn't available (e.g. mGBA 0.10.x) it
+-- reports unavailable and the menu falls back to ConsoleMenuUI.
+local MENU_FONT_FILE = "SourceSans3-Regular.otf"
+local ScreenMenuUI = { _init = false, _ok = false }
+function ScreenMenuUI:_setup()
+	if self._init then return self._ok end
+	self._init = true
+	if not canvas or not image then return false end   -- 0.10.x: no draw API
+	local ok = pcall(function()
+		self._sw = canvas:screenWidth()
+		self._sh = canvas:screenHeight()
+		self._layer = canvas:newLayer(self._sw, self._sh)
+		self._painter = image.newPainter(self._layer.image)
+		local dir = (script and script.dir) or "."
+		self._painter:loadFont(dir .. "/" .. MENU_FONT_FILE)
+	end)
+	self._ok = ok and self._layer ~= nil and self._painter ~= nil
+	if not self._ok then self._layer = nil self._painter = nil end
+	return self._ok
+end
 function ScreenMenuUI:available()
-	return false  -- TODO: return true once mGBA's screen-draw API is present
+	return self:_setup()
+end
+function ScreenMenuUI:hide()
+	if self._layer then pcall(function() self._layer:setPosition(0, self._sh + 40) end) end
 end
 function ScreenMenuUI:render(screen)
-	-- TODO(0.11): draw `screen` as an overlay on the emulated display.
+	if not self._ok then return end
+	local p, SW, SH = self._painter, self._sw, self._sh
+	pcall(function()
+		local bx, by, bw, bh = 4, 4, SW - 8, SH - 8
+		-- border + solid panel background (opaque so each redraw fully clears the last)
+		p:setFill(true)
+		p:setFillColor(0xFF3A6EA5)
+		p:drawRectangle(bx, by, bw, bh)
+		p:setFillColor(0xFF0E1626)
+		p:drawRectangle(bx + 1, by + 1, bw - 2, bh - 2)
+		-- title bar
+		p:setFillColor(0xFF2A66C8)
+		p:drawRectangle(bx + 1, by + 1, bw - 2, 16)
+		p:setFontSize(12)
+		p:setFillColor(0xFFFFFFFF)
+		p:drawText(screen.title or "", bx + 5, by + 2)
+		local y = by + 20
+		if screen.subtitle then
+			p:setFontSize(9)
+			p:setFillColor(0xFF9FB2CC)
+			p:drawText(screen.subtitle, bx + 5, y)
+			y = y + 12
+		end
+		y = y + 2
+		local opts = screen.options or {}
+		p:setFontSize(11)
+		for i = 1, #opts do
+			if i == screen.selected then
+				p:setFillColor(0xFF2A66C8)
+				p:drawRectangle(bx + 3, y - 1, bw - 6, 13)
+				p:setFillColor(0xFFFFFFFF)
+				p:drawText("> " .. opts[i], bx + 7, y)
+			else
+				p:setFillColor(0xFFD2DCEC)
+				p:drawText("   " .. opts[i], bx + 7, y)
+			end
+			y = y + 14
+		end
+		local foot = screen.footer or {}
+		p:setFontSize(9)
+		p:setFillColor(0xFF8496AE)
+		local fy = by + bh - 3 - (#foot * 11)
+		for i = 1, #foot do
+			p:drawText(foot[i], bx + 5, fy)
+			fy = fy + 11
+		end
+		self._layer:setPosition(0, 0)
+		self._layer:update()
+	end)
 end
 
 local function pickMenuUI()
@@ -16104,6 +16186,11 @@ local function pickMenuUI()
 	return ConsoleMenuUI
 end
 local MenuUI = pickMenuUI()
+
+-- Hide the menu (clear the console buffer / move the on-screen overlay away).
+function HideMenuOverlay()
+	if MenuUI and MenuUI.hide then MenuUI:hide() end
+end
 
 -- ===================== GBA-PK connect / name menu ====================
 -- Key bits returned by emu:getKeys()
@@ -16262,9 +16349,9 @@ local function handleConnectKeys(pressed)
 		end
 	elseif (pressed & KEY_A) ~= 0 then
 		if MenuSel == 1 then
-			MenuActive = false; host()
+			MenuActive = false; HideMenuOverlay(); host()
 		elseif MenuSel == 2 then
-			MenuActive = false; join()
+			MenuActive = false; HideMenuOverlay(); join()
 		elseif MenuSel == 3 then
 			startNameEditor()
 		elseif MenuSel == 4 then
@@ -16341,7 +16428,7 @@ end
 function MenuLogic()
 	if not emu then return end
 	if Hosting or Connected then
-		if MenuActive then MenuActive = false end
+		if MenuActive then MenuActive = false; HideMenuOverlay() end
 		MenuPrevKeys = emu:getKeys()
 		return
 	end
@@ -16360,7 +16447,7 @@ function MenuLogic()
 	emu:clearKeys(KEY_ALL)
 	if (pressed & KEY_SELECT) ~= 0 then
 		MenuActive = false
-		if ConsoleForText then ConsoleForText:clear() end
+		HideMenuOverlay()
 		console:log("Menu closed. Press Select (on the game) to reopen it.")
 		return
 	end
@@ -16457,7 +16544,7 @@ if NativeLua then
 else
 	SocketMain = socket:tcp()
 
-	console:log("Started GBA-PK v" .. ScriptVersion .. ". Open the \"GBA-PK\" tab above, focus the game, and use the D-pad (it drives the menu only). Select closes/opens it. Or type help() for commands.")
+	console:log("Started GBA-PK v" .. ScriptVersion .. ". Focus the game and use the D-pad to drive the menu (it drives the menu only, not the game). On mGBA 0.11 the menu is drawn on the game screen; on 0.10.x it shows in the \"GBA-PK\" tab above. Select toggles it. Or type help() for commands.")
 	if not (emu == nil) then
 		StartScript()
 	end

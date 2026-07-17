@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.0
+
+- **On-screen menu (mGBA 0.11+).** The connect/setup menu now draws directly on the game
+  screen using mGBA 0.11's canvas/painter scripting API, instead of only in the scripting
+  console tab. It falls back to the console panel automatically on mGBA 0.10.x. Bundles
+  `SourceSans3-Regular.otf` (SIL OFL) for the on-screen text; keep it next to `GBA-PK.lua`.
+- **mGBA 0.11 compatibility fix.** mGBA 0.11's `emu:getGameCode()` returns the bare 4-char
+  code (e.g. `BPEE`) instead of 0.10's `AGB-BPEE`; the game code is now normalized so
+  detection works on both versions. Without this the script disabled itself on 0.11.
+- Menu input handling and the Select toggle from v1.0.0 are unchanged and apply to both
+  the on-screen and console backends.
+
 ## v1.0.0
 
 First tagged release of GBA-PK Multiplayer — one Lua script that adds multiplayer to the
