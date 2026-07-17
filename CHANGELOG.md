@@ -6,6 +6,9 @@
   screen using mGBA 0.11's canvas/painter scripting API, instead of only in the scripting
   console tab. It falls back to the console panel automatically on mGBA 0.10.x. Bundles
   `SourceSans3-Regular.otf` (SIL OFL) for the on-screen text; keep it next to `GBA-PK.lua`.
+  The overlay fully clears and repaints its panel each frame and is positioned from a
+  per-frame callback, so the panel background stays solid as you navigate and the menu can
+  never get stuck off-screen after choosing an option.
 - **mGBA 0.11 compatibility fix.** mGBA 0.11's `emu:getGameCode()` returns the bare 4-char
   code (e.g. `BPEE`) instead of 0.10's `AGB-BPEE`; the game code is now normalized so
   detection works on both versions. Without this the script disabled itself on 0.11.

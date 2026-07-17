@@ -16106,7 +16106,7 @@ end
 -- GBA-PK.lua; if the draw API or font isn't available (e.g. mGBA 0.10.x) it
 -- reports unavailable and the menu falls back to ConsoleMenuUI.
 local MENU_FONT_FILE = "SourceSans3-Regular.otf"
-local ScreenMenuUI = { _init = false, _ok = false }
+local ScreenMenuUI = { _init = false, _ok = false, _visible = false }
 function ScreenMenuUI:_setup()
 	if self._init then return self._ok end
 	self._init = true
@@ -16120,13 +16120,33 @@ function ScreenMenuUI:_setup()
 		self._painter:loadFont(dir .. "/" .. MENU_FONT_FILE)
 	end)
 	self._ok = ok and self._layer ~= nil and self._painter ~= nil
-	if not self._ok then self._layer = nil self._painter = nil end
+	if not self._ok then self._layer = nil self._painter = nil return false end
+	-- Start hidden (off-screen), then drive position + compositing every frame.
+	-- Keeping the layer positioned/updated from a frame callback (instead of only
+	-- at the end of render) means the overlay can never get "stuck" off-screen if a
+	-- draw call ever throws, and guarantees it composites over the game each frame.
+	pcall(function() self._layer:setPosition(0, self._sh + 40) end)
+	if callbacks then
+		callbacks:add("frame", function() ScreenMenuUI:_tick() end)
+	end
 	return self._ok
 end
 function ScreenMenuUI:available()
 	return self:_setup()
 end
+function ScreenMenuUI:_tick()
+	if not self._ok or not self._layer then return end
+	pcall(function()
+		if self._visible then
+			self._layer:setPosition(0, 0)
+		else
+			self._layer:setPosition(0, self._sh + 40)
+		end
+		self._layer:update()
+	end)
+end
 function ScreenMenuUI:hide()
+	self._visible = false
 	if self._layer then pcall(function() self._layer:setPosition(0, self._sh + 40) end) end
 end
 function ScreenMenuUI:render(screen)
@@ -16134,8 +16154,14 @@ function ScreenMenuUI:render(screen)
 	local p, SW, SH = self._painter, self._sw, self._sh
 	pcall(function()
 		local bx, by, bw, bh = 4, 4, SW - 8, SH - 8
-		-- border + solid panel background (opaque so each redraw fully clears the last)
+		-- Fully clear the layer first (opaque copy, no blend) so nothing from the
+		-- previous frame — including the panel background — can bleed or drop out.
+		p:setBlend(false)
 		p:setFill(true)
+		p:setStrokeWidth(0)
+		p:setFillColor(0x00000000)
+		p:drawRectangle(0, 0, SW, SH)
+		-- border + solid panel background (opaque so each redraw fully clears the last)
 		p:setFillColor(0xFF3A6EA5)
 		p:drawRectangle(bx, by, bw, bh)
 		p:setFillColor(0xFF0E1626)
@@ -16143,6 +16169,8 @@ function ScreenMenuUI:render(screen)
 		-- title bar
 		p:setFillColor(0xFF2A66C8)
 		p:drawRectangle(bx + 1, by + 1, bw - 2, 16)
+		-- text blends onto the panel so glyph edges stay smooth
+		p:setBlend(true)
 		p:setFontSize(12)
 		p:setFillColor(0xFFFFFFFF)
 		p:drawText(screen.title or "", bx + 5, by + 2)
@@ -16158,8 +16186,10 @@ function ScreenMenuUI:render(screen)
 		p:setFontSize(11)
 		for i = 1, #opts do
 			if i == screen.selected then
+				p:setBlend(false)
 				p:setFillColor(0xFF2A66C8)
 				p:drawRectangle(bx + 3, y - 1, bw - 6, 13)
+				p:setBlend(true)
 				p:setFillColor(0xFFFFFFFF)
 				p:drawText("> " .. opts[i], bx + 7, y)
 			else
@@ -16176,9 +16206,9 @@ function ScreenMenuUI:render(screen)
 			p:drawText(foot[i], bx + 5, fy)
 			fy = fy + 11
 		end
-		self._layer:setPosition(0, 0)
-		self._layer:update()
 	end)
+	-- Make the overlay visible; _tick() keeps it positioned and composited.
+	self._visible = true
 end
 
 local function pickMenuUI()
