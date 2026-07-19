@@ -2,12 +2,18 @@
 
 ## v1.2.0
 
+- **Set the host IP from the menu.** The connect menu has a new **Set IP** entry with a D-pad
+  editor (Up/Down change a digit or dot, Left/Right move, A confirms) so you can point **Join**
+  at any address without touching the scripting box. `join("ip")` still works too.
 - **In-session menu.** Press **Select** while hosting or connected to open a new in-game menu
   with **Set name**, **Set skin** and **Disconnect** — so you can change how you look or what
   you're called without leaving the session. (Host/Join/Soullocke setup only apply before you
   connect, so they're not shown here.) Skin changes ride out in the normal position packet, so
   everyone sees your new look live; name changes send a nickname update to the other players.
   `setname()` in the scripting box now also broadcasts mid-session.
+- **Tidier on-screen menu.** The overlay menu used oversized text that filled the screen and
+  clipped the title. Type is smaller and rows are tighter now, so the whole menu fits neatly and
+  the console-style `=====` title decoration is dropped on screen.
 
 ## v1.1.1
 

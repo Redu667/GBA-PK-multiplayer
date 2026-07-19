@@ -175,6 +175,8 @@ local MenuPrevKeys = 0
 local MenuScreen = "connect" -- "connect" or "name" (nickname editor)
 local NameBuf = { "A" }      -- working buffer for the D-pad name editor
 local NamePos = 1            -- cursor position in NameBuf
+local IpBuf = {}             -- working buffer for the D-pad IP editor
+local IpPos = 1              -- cursor position in IpBuf
 local LocalInBattle = 0      -- GBA-PK: local player's in-battle flag, broadcast to others
 local LocalSkin = 0          -- GBA-PK: local player's chosen skin (overworld graphics id; 0 = default)
 local SkinPalSlot = {}       -- GBA-PK: per-draw-slot OAM palette slot for skinned players (this frame)
@@ -16184,7 +16186,9 @@ function ScreenMenuUI:render(screen)
 	if not self._ok then return end
 	local p, SW, SH = self._painter, self._sw, self._sh
 	pcall(function()
-		local bx, by, bw, bh = 4, 4, SW - 8, SH - 8
+		-- The overlay is drawn in the GBA's 240x160 space and scaled up with the
+		-- game, so keep type small here — small numbers still read large on screen.
+		local bx, by, bw, bh = 3, 3, SW - 6, SH - 6
 		-- Fully clear the layer first (opaque copy, no blend) so nothing from the
 		-- previous frame — including the panel background — can bleed or drop out.
 		p:setBlend(false)
@@ -16199,43 +16203,45 @@ function ScreenMenuUI:render(screen)
 		p:drawRectangle(bx + 1, by + 1, bw - 2, bh - 2)
 		-- title bar
 		p:setFillColor(0xFF2A66C8)
-		p:drawRectangle(bx + 1, by + 1, bw - 2, 16)
+		p:drawRectangle(bx + 1, by + 1, bw - 2, 11)
 		-- text blends onto the panel so glyph edges stay smooth
 		p:setBlend(true)
-		p:setFontSize(12)
+		-- strip the console-style "=====" decoration from the title on screen
+		local title = (screen.title or ""):gsub("^[%s=]+", ""):gsub("[%s=]+$", "")
+		p:setFontSize(8)
 		p:setFillColor(0xFFFFFFFF)
-		p:drawText(screen.title or "", bx + 5, by + 2)
-		local y = by + 20
+		p:drawText(title, bx + 4, by + 2)
+		local y = by + 14
 		if screen.subtitle then
-			p:setFontSize(9)
+			p:setFontSize(6)
 			p:setFillColor(0xFF9FB2CC)
-			p:drawText(screen.subtitle, bx + 5, y)
-			y = y + 12
+			p:drawText(screen.subtitle, bx + 4, y)
+			y = y + 8
 		end
 		y = y + 2
 		local opts = screen.options or {}
-		p:setFontSize(11)
+		p:setFontSize(8)
 		for i = 1, #opts do
 			if i == screen.selected then
 				p:setBlend(false)
 				p:setFillColor(0xFF2A66C8)
-				p:drawRectangle(bx + 3, y - 1, bw - 6, 13)
+				p:drawRectangle(bx + 2, y - 1, bw - 4, 10)
 				p:setBlend(true)
 				p:setFillColor(0xFFFFFFFF)
-				p:drawText("> " .. opts[i], bx + 7, y)
+				p:drawText("> " .. opts[i], bx + 5, y)
 			else
 				p:setFillColor(0xFFD2DCEC)
-				p:drawText("   " .. opts[i], bx + 7, y)
+				p:drawText("   " .. opts[i], bx + 5, y)
 			end
-			y = y + 14
+			y = y + 10
 		end
 		local foot = screen.footer or {}
-		p:setFontSize(9)
+		p:setFontSize(6)
 		p:setFillColor(0xFF8496AE)
-		local fy = by + bh - 3 - (#foot * 11)
+		local fy = by + bh - 3 - (#foot * 8)
 		for i = 1, #foot do
-			p:drawText(foot[i], bx + 5, fy)
-			fy = fy + 11
+			p:drawText(foot[i], bx + 4, fy)
+			fy = fy + 8
 		end
 	end)
 	-- Make the overlay visible; _tick() keeps it positioned and composited.
@@ -16260,10 +16266,11 @@ local KEY_SELECT, KEY_START = 0x4, 0x8
 local KEY_RIGHT, KEY_LEFT, KEY_UP, KEY_DOWN = 0x10, 0x20, 0x40, 0x80
 local KEY_ALL = 0x3FF  -- A,B,Select,Start,Right,Left,Up,Down,R,L
 
-local MenuOptions = { "Host a game", "Join a game", "Set name", "Set skin", "Soullocke setup" }
+local MenuOptions = { "Host a game", "Join a game", "Set IP", "Set name", "Set skin", "Soullocke setup" }
 local SoulMenuSel = 1
 local SessionMenuSel = 1   -- selection in the in-session (mid-game) menu
 local NameChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+local IpChars = "0123456789."   -- for the D-pad IP editor
 
 --Curated overworld-sprite "skins" per game version (the game's own graphics ids).
 --0 = your normal protagonist. Ids that don't exist on a game safely fall back to
@@ -16301,19 +16308,39 @@ end
 function DrawConnectMenu()
 	MenuUI = pickMenuUI()
 	MenuUI:render({
-		title = "===== GBA-PK Multiplayer v" .. ScriptVersion .. " =====",
-		subtitle = "Focus the game window. D-pad: move  A: choose  Select: close",
+		title = "GBA-PK Multiplayer v" .. ScriptVersion,
+		subtitle = "D-pad: move   A: choose   Select: close",
 		options = {
 			"Host a game",
 			"Join " .. IPAddress,
+			"Set IP (" .. IPAddress .. ")",
 			"Set name (" .. (Nickname ~= "" and Nickname or "auto") .. ")",
 			"Set skin < " .. currentSkinLabel() .. " >",
 			"Soullocke setup " .. (Soullocke and "[ON]" or "[off]"),
 		},
 		selected = MenuSel,
 		footer = {
-			"Your inputs drive this menu only (the game stays put).",
-			"Skin: Left/Right to change. Port " .. Port .. ", up to " .. MaxPlayers .. " players.",
+			"Inputs drive this menu only; the game stays put.",
+			"Skin: Left/Right. Port " .. Port .. ", up to " .. MaxPlayers .. " players.",
+		},
+	})
+end
+
+function DrawIpEditor()
+	MenuUI = pickMenuUI()
+	local shown = ""
+	for i = 1, #IpBuf do
+		if i == IpPos then shown = shown .. "[" .. IpBuf[i] .. "]"
+		else shown = shown .. IpBuf[i] end
+	end
+	MenuUI:render({
+		title = "Set host IP",
+		subtitle = "Up/Down: digit/dot   Left/Right: move",
+		options = { shown },
+		selected = 0,
+		footer = {
+			"A: confirm   B: backspace",
+			"IP: " .. table.concat(IpBuf),
 		},
 	})
 end
@@ -16419,7 +16446,33 @@ local function cycleChar(dir)
 	NameBuf[NamePos] = string.sub(NameChars, idx, idx)
 end
 
+local function startIpEditor()
+	MenuScreen = "ip"
+	IpBuf = {}
+	local seed = (IPAddress ~= "" and IPAddress) or "0"
+	for i = 1, #seed do IpBuf[i] = string.sub(seed, i, i) end
+	if #IpBuf == 0 then IpBuf = { "0" } end
+	IpPos = 1
+	DrawIpEditor()
+end
+
+local function cycleIpChar(dir)
+	local c = IpBuf[IpPos] or "0"
+	local idx = string.find(IpChars, c, 1, true) or 1
+	idx = idx + dir
+	local n = #IpChars
+	if idx < 1 then idx = n end
+	if idx > n then idx = 1 end
+	IpBuf[IpPos] = string.sub(IpChars, idx, idx)
+end
+
 local function handleConnectKeys(pressed)
+	local function cycleSkin(dir)
+		local n = #currentSkinList()
+		SkinSel = SkinSel + dir
+		if SkinSel < 1 then SkinSel = n elseif SkinSel > n then SkinSel = 1 end
+		applySkin(); DrawConnectMenu()
+	end
 	if (pressed & KEY_UP) ~= 0 then
 		MenuSel = MenuSel - 1
 		if MenuSel < 1 then MenuSel = #MenuOptions end
@@ -16429,31 +16482,55 @@ local function handleConnectKeys(pressed)
 		if MenuSel > #MenuOptions then MenuSel = 1 end
 		DrawConnectMenu()
 	elseif (pressed & KEY_LEFT) ~= 0 then
-		if MenuSel == 4 then
-			local n = #currentSkinList()
-			SkinSel = SkinSel - 1; if SkinSel < 1 then SkinSel = n end
-			applySkin(); DrawConnectMenu()
-		end
+		if MenuSel == 5 then cycleSkin(-1) end
 	elseif (pressed & KEY_RIGHT) ~= 0 then
-		if MenuSel == 4 then
-			local n = #currentSkinList()
-			SkinSel = SkinSel + 1; if SkinSel > n then SkinSel = 1 end
-			applySkin(); DrawConnectMenu()
-		end
+		if MenuSel == 5 then cycleSkin(1) end
 	elseif (pressed & KEY_A) ~= 0 then
 		if MenuSel == 1 then
 			MenuActive = false; HideMenuOverlay(); host()
 		elseif MenuSel == 2 then
 			MenuActive = false; HideMenuOverlay(); join()
 		elseif MenuSel == 3 then
-			startNameEditor()
+			startIpEditor()
 		elseif MenuSel == 4 then
-			local n = #currentSkinList()
-			SkinSel = SkinSel + 1; if SkinSel > n then SkinSel = 1 end
-			applySkin(); DrawConnectMenu()
+			startNameEditor()
+		elseif MenuSel == 5 then
+			cycleSkin(1)
 		else
 			MenuScreen = "soul"; SoulMenuSel = 1; DrawSoulMenu()
 		end
+	end
+end
+
+local function handleIpKeys(pressed)
+	if (pressed & KEY_UP) ~= 0 then
+		cycleIpChar(1); DrawIpEditor()
+	elseif (pressed & KEY_DOWN) ~= 0 then
+		cycleIpChar(-1); DrawIpEditor()
+	elseif (pressed & KEY_LEFT) ~= 0 then
+		if IpPos > 1 then IpPos = IpPos - 1 end
+		DrawIpEditor()
+	elseif (pressed & KEY_RIGHT) ~= 0 then
+		if IpPos < #IpBuf then
+			IpPos = IpPos + 1
+		elseif #IpBuf < 15 then
+			IpBuf[#IpBuf + 1] = "0"; IpPos = #IpBuf
+		end
+		DrawIpEditor()
+	elseif (pressed & KEY_B) ~= 0 then
+		if #IpBuf > 1 then
+			table.remove(IpBuf)
+			if IpPos > #IpBuf then IpPos = #IpBuf end
+			DrawIpEditor()
+		else
+			MenuScreen = "connect"; DrawConnectMenu()
+		end
+	elseif (pressed & KEY_A) ~= 0 then
+		local ip = table.concat(IpBuf)
+		if ip ~= "" then IPAddress = ip end
+		console:log("Join IP set to " .. IPAddress)
+		MenuScreen = "connect"
+		DrawConnectMenu()
 	end
 end
 
@@ -16584,6 +16661,8 @@ function MenuLogic()
 	if pressed == 0 then return end
 	if MenuScreen == "name" then
 		handleNameKeys(pressed)
+	elseif MenuScreen == "ip" then
+		handleIpKeys(pressed)
 	elseif MenuScreen == "soul" then
 		handleSoulKeys(pressed)
 	elseif MenuScreen == "session" then

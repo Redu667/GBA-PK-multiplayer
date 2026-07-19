@@ -56,8 +56,10 @@ client and server script.
    won't open the game menu), and **Select** closes/reopens it. Use **D-pad Up/Down** and
    **A** to choose:
    - **Host a game** — others connect to your IP address.
-   - **Join a game** — connect to the host's IP (set `ServerIP` in the config, or use
-     `join("their.ip.address")`).
+   - **Join a game** — connect to the host's IP.
+   - **Set IP** — type the host's IP with the D-pad (Up/Down change a digit or dot,
+     Left/Right move the cursor, **A** confirms, **B** backspaces), then choose **Join**. You
+     can also set `ServerIP` in the config or use `join("their.ip.address")`.
    - **Set name** — type a nickname with the D-pad (Up/Down change the letter, Left/Right
      move the cursor, **A** confirms, **B** backspaces).
    - **Set skin** — change how you look to other players. Use **Left/Right** to cycle
