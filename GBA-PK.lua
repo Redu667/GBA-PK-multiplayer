@@ -10,7 +10,7 @@ local Nickname   = ""            -- up to 10 chars. Blank = use your in-game nam
 local ServerIP   = "127.0.0.1"   -- the host's IP address (only used when joining)
 local Port       = 4096          -- must be the same for everyone in the session
 local MaxPlayers = 4             -- players per session (supports up to 8)
-local ScriptVersion = "1.3.0"    -- GBA-PK release version
+local ScriptVersion = "1.4.0"    -- GBA-PK release version
 -- ======================================================================
 local IPAddress  = ServerIP      -- internal alias (do not edit)
 local ServerType = "c"           -- internal, derived from Role/commands
@@ -139,6 +139,8 @@ local EnableScript = false
 local Hosting = false
 local Connected = false
 ServerIsDedicated = false    -- GBA-PK: true when joined to a standalone GBA-PK-Server.lua (host is not a player)
+ServerLastSeen = 0           -- GBA-PK: os.time() of the last PING/data seen from the dedicated server
+local HeartbeatTick = 0      -- GBA-PK: counts network_send ticks between client PINGs
 local ConnectType = 0
 local NoPlayers = 0
 local GameID
@@ -10604,6 +10606,22 @@ function Connection()
 				end
 			end
 		elseif Connected then
+			--GBA-PK: heartbeat to/from a dedicated server. Clients only send SPOS when
+			--they have peers, so a lone player would otherwise be silent — the PING keeps
+			--the server's liveness view accurate, and the server's own PINGs let us spot
+			--a dead server even when nothing else is flowing.
+			if ServerIsDedicated then
+				HeartbeatTick = HeartbeatTick + 1
+				if HeartbeatTick >= 60 then      --network_send fires ~30x/s -> a PING every ~2s
+					HeartbeatTick = 0
+					SendSpecialData(SocketMain, "PING", 0, PlayerID)
+				end
+				if ServerLastSeen > 0 and (os.time() - ServerLastSeen) > 25 then
+					console:log("Lost the dedicated server (no heartbeat for 25s). Disconnecting.")
+					disconnect()
+					return
+				end
+			end
 			if #players > 1 then
 				for i, player in ipairs(players) do
 					if player:GetID() == 1 and player:GetTimeout() <= 0 then
@@ -10790,6 +10808,13 @@ function ReceiveData(SocketMain)
 				packet.SoulArea = string.byte(ReadData, 21)
 				packet.SoulBenched = string.byte(ReadData, 22)
 				packet.IsSpecial = true
+			elseif packet.RequestType == "CHAT" then
+				--Chat message: payload = text padded with "~" (sender id in PlayerID; id 0 = the server)
+				packet.ChatText = string.gsub(string.sub(ReadData, 21, 63), "~*$", "")
+				packet.IsSpecial = true
+			elseif packet.RequestType == "PING" then
+				--Liveness heartbeat; carries no payload
+				packet.IsSpecial = true
 			else
 				packet.RequestBytes = tonumber(string.sub(packet.ExtraData, 1, 4))
 				packet.Battle = string.byte(string.sub(packet.ExtraData, 5, 5)) | (string.byte(string.sub(packet.ExtraData, 6, 6)) << 8) | (string.byte(string.sub(packet.ExtraData, 7, 7)) << 16) | (string.byte(string.sub(packet.ExtraData, 8, 8)) << 24)
@@ -10918,6 +10943,7 @@ function ReceiveData(SocketMain)
 						--GBA-PK: a dedicated server marks its STRT (ExtraData byte 38 = "D").
 						--It relays like a host but is not a player, so don't add it as one.
 						ServerIsDedicated = string.sub(packet.ExtraData, 38, 38) == "D"
+						if ServerIsDedicated then ServerLastSeen = os.time() end
 						if not ServerIsDedicated then
 							--Add host
 							AddPlayer(1, SocketMain, packet.Nickname, packet.GameID, packet.CurrentX, packet.CurrentY, packet.Direction, packet.MapID, packet.Animation, packet.Gender, packet.SpriteType, packet.MapConnectionType, packet.BorderX, packet.BorderY, nil, packet.AnimationData, packet.MetaTile)
@@ -10980,7 +11006,33 @@ function ReceiveData(SocketMain)
 				--Remove player
 				elseif packet.RequestType == "RPLA" then
 					RemovePlayer(packet.RequestBytes)
-					
+
+				--Chat (works in both dedicated-server and peer-host sessions)
+				elseif packet.RequestType == "CHAT" then
+					local fromName
+					if packet.PlayerID == 0 then
+						fromName = "[server]"
+					else
+						local p = FindPlayerByID(packet.PlayerID)
+						local nick = p and p:GetNickname()
+						if nick and nick ~= "FFFF" and nick ~= "" then fromName = nick
+						else fromName = "P" .. tostring(packet.PlayerID) end
+					end
+					ChatShow(fromName, packet.ChatText or "")
+					--Peer host relays chat on to everyone else (per-recipient SendToID so
+					--old clients that don't know CHAT ignore it instead of replying TBUS)
+					if Hosting and packet.PlayerID ~= PlayerID then
+						for i, player in ipairs(players) do
+							if player:GetID() ~= PlayerID and player:GetID() ~= packet.PlayerID then
+								CreateSpecialPacket(player:GetSocket(), "CHAT", player:GetID(), packet.PlayerID, { text = packet.ChatText })
+							end
+						end
+					end
+
+				--Server liveness heartbeat
+				elseif packet.RequestType == "PING" then
+					ServerLastSeen = os.time()
+
 				elseif packet.RequestType == "SPOS" then
 					--Set player position
 					local player = FindPlayerByID(packet.RequestBytes)
@@ -11563,6 +11615,21 @@ function CreateSpecialPacket(Socket, RequestTemp, PacketTemp, DataToUse, Optiona
 		
 		Packet = PacketGameID .. PacketNickname .. PacketPlayerID .. PacketSendToID .. RequestTemp .. PacketSpecialNickname .. "U"
 		if DebugMessages.Nickname then console:log("NICKNAME: " .. Packet) end
+		Socket:send(Packet)
+
+	elseif RequestTemp == "CHAT" then
+		--Chat message. Payload = up to 43 chars of text, "~"-padded. Sender is the
+		--PlayerID field; receivers resolve the display name from their player list.
+		local text = (Optional and Optional.text) or ""
+		text = string.gsub(text, "[%c~]", " ")     --keep the frame and padding unambiguous
+		if #text > 43 then text = string.sub(text, 1, 43) end
+		local payload = text .. string.rep("~", 43 - #text)
+		Packet = PacketGameID .. PacketNickname .. PacketPlayerID .. PacketSendToID .. RequestTemp .. payload .. "U"
+		Socket:send(Packet)
+
+	elseif RequestTemp == "PING" then
+		--Liveness heartbeat; no payload
+		Packet = PacketGameID .. PacketNickname .. PacketPlayerID .. PacketSendToID .. RequestTemp .. string.rep("F", 43) .. "U"
 		Socket:send(Packet)
 		
 	elseif RequestTemp == "CARD" then
@@ -16312,6 +16379,123 @@ function HideMenuOverlay()
 	if MenuUI and MenuUI.hide then MenuUI:hide() end
 end
 
+-- ===================== GBA-PK chat overlay (mGBA 0.11+) ======================
+-- A small on-screen feed for chat messages, drawn on its own canvas layer at the
+-- bottom of the game screen. Messages fade out after a few seconds. Uses the
+-- same proven pattern as ScreenMenuUI: the layer stays pinned at (0,0), shows by
+-- drawing and hides by clearing to transparent, re-composited every frame. On
+-- 0.10.x (no canvas) chat simply stays console-only.
+local ChatOverlay = { _init = false, _ok = false, _msgs = {}, _dirty = false, _shown = false }
+local CHAT_SHOW_SECONDS = 12
+local CHAT_MAX_LINES = 4
+function ChatOverlay:_setup()
+	if self._init then return self._ok end
+	self._init = true
+	if not canvas or not image then return false end
+	local ok = pcall(function()
+		self._sw = canvas:screenWidth()
+		self._sh = canvas:screenHeight()
+		self._layer = canvas:newLayer(self._sw, self._sh)
+		self._painter = image.newPainter(self._layer.image)
+		local dir = (script and script.dir) or "."
+		self._painter:loadFont(dir .. "/" .. MENU_FONT_FILE)
+	end)
+	self._ok = ok and self._layer ~= nil and self._painter ~= nil
+	if not self._ok then self._layer = nil self._painter = nil return false end
+	pcall(function() self._layer:setPosition(0, 0) end)
+	self:_clear()
+	if callbacks then
+		callbacks:add("frame", function() ChatOverlay:_tick() end)
+	end
+	return self._ok
+end
+function ChatOverlay:_clear()
+	if not self._painter then return end
+	pcall(function()
+		self._painter:setBlend(false)
+		self._painter:setFill(true)
+		self._painter:setStrokeWidth(0)
+		self._painter:setFillColor(0x00000000)
+		self._painter:drawRectangle(0, 0, self._sw, self._sh)
+	end)
+	self._shown = false
+end
+function ChatOverlay:push(name, text)
+	if not self:_setup() then return end
+	table.insert(self._msgs, { line = name .. ": " .. text, at = os.time() })
+	while #self._msgs > CHAT_MAX_LINES do table.remove(self._msgs, 1) end
+	self._dirty = true
+end
+function ChatOverlay:_visibleLines()
+	local now = os.time()
+	local out = {}
+	for _, m in ipairs(self._msgs) do
+		if (now - m.at) <= CHAT_SHOW_SECONDS then out[#out + 1] = m.line end
+	end
+	return out
+end
+function ChatOverlay:_tick()
+	if not self._ok then return end
+	pcall(function()
+		local lines = self:_visibleLines()
+		--the menu owns the whole screen while it's open; get out of its way
+		if MenuActive or #lines == 0 then
+			if self._shown then self:_clear() end
+		elseif self._dirty or not self._shown then
+			self._dirty = false
+			self:_clear()
+			local p = self._painter
+			local rowH = 9
+			local y0 = self._sh - 8 - (#lines * rowH)
+			p:setFill(true)
+			p:setStrokeWidth(0)
+			for i, line in ipairs(lines) do
+				if #line > 52 then line = string.sub(line, 1, 52) .. ".." end
+				local y = y0 + (i - 1) * rowH
+				p:setBlend(false)
+				p:setFillColor(0xA0101820)                       --translucent backing strip
+				p:drawRectangle(2, y - 1, self._sw - 4, rowH)
+				p:setBlend(true)
+				p:setFontSize(7)
+				p:setFillColor(0xFFFFFFFF)
+				p:drawText(line, 5, y)
+			end
+			self._shown = true
+		end
+		--drop the feed once everything expired (checked once a second is fine,
+		--but this is cheap enough to do inline)
+		if self._shown and #self:_visibleLines() == 0 then self:_clear() end
+		self._layer:setPosition(0, 0)
+		self._layer:update()
+	end)
+end
+
+-- Show a chat line everywhere it can be seen: the console always, plus the
+-- on-screen feed on mGBA 0.11+.
+function ChatShow(name, text)
+	console:log("[chat] " .. name .. ": " .. text)
+	ChatOverlay:push(name, text)
+end
+
+-- Send a chat message to everyone in the session.
+function say(text)
+	if type(text) ~= "string" or text == "" then console:log('Usage: say("your message")') return end
+	if not (Hosting or Connected) then console:log("Not connected — join or host a session first.") return end
+	text = utf8_cut(string.gsub(text, "[%c~]", " "), 43)
+	local me = (Nickname ~= "" and Nickname) or ("P" .. tostring(PlayerID))
+	ChatShow(me, text)
+	if Hosting then
+		for i, player in ipairs(players) do
+			if player:GetID() ~= PlayerID then
+				CreateSpecialPacket(player:GetSocket(), "CHAT", player:GetID(), PlayerID, { text = text })
+			end
+		end
+	elseif Connected and SocketMain then
+		--dedicated server intercepts CHAT no matter the target; a peer host relays it
+		SendSpecialData(SocketMain, "CHAT", ServerIsDedicated and 0 or 1, PlayerID, { text = text })
+	end
+end
+
 -- ===================== GBA-PK connect / name menu ====================
 -- Key bits returned by emu:getKeys()
 local KEY_A, KEY_B     = 0x1, 0x2
@@ -16746,6 +16930,7 @@ function Help(page)
 		console:log("->who() --List everyone in your session")
 		console:log("->status() --Show connection status")
 		console:log("->netlog(on) --Toggle verbose network logging to diagnose a failed join")
+		console:log("->say(\"msg\") --Send a chat message to everyone in the session")
 		console:log("->disconnect() --Leave the current session")
 		console:log("->soullocke(on) --Toggle the Soullocke handler (auto soul-link + shared fate). Omit arg to toggle")
 		console:log("->soul_dupes(on) --Toggle the dupes clause (recommended on)")

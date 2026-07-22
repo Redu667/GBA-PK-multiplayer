@@ -100,6 +100,13 @@ if people come and go — better for bigger or longer-running lobbies.
 Peer hosting with `host()` still works exactly as before; the dedicated server is just an
 alternative. See **[ROADMAP.md](ROADMAP.md)** for where multiplayer is headed.
 
+**Chat.** Type `say("your message")` in the scripting box to talk to everyone in the session
+(works with a dedicated server or a peer host). Messages appear in the console, and on mGBA
+0.11+ also in a small feed at the bottom of the game screen that fades after a few seconds.
+The server announces joins and leaves in chat, keeps nicknames unique (a duplicate shows as
+`NAME(id)` to others), and exchanges heartbeats with clients so idle sessions stay alive and
+a dead server is noticed within seconds.
+
 ### Seeing other players
 
 - **Skins animate.** Other players' chosen overworld skins walk with a full walk
@@ -142,6 +149,7 @@ full list):
 | `setname("Name")` | Set your nickname |
 | `who()` | List everyone in your session |
 | `status()` | Show connection status |
+| `say("msg")` | Send a chat message to everyone in the session |
 | `disconnect()` | Leave the current session |
 | `soullocke(on)` | Turn the Soullocke handler on/off (omit the arg to toggle) |
 | `soul_dupes(on)` | Toggle the dupes clause |

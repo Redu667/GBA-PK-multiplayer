@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4.0
+
+- **Chat.** Type `say("your message")` in the scripting box to talk to everyone in the
+  session. Messages relay through the dedicated server (or the peer host) and appear in the
+  console — and on mGBA 0.11+, in a small on-screen feed at the bottom of the game that fades
+  out after a few seconds. The server announces joins and leaves in chat too ("[server]
+  Player 3 joined (2/8 online)").
+- **Presence.** The dedicated server now keeps nicknames unique — a duplicate name is shown
+  to everyone else as `NAME(id)` — and every join/leave notice includes the online count.
+- **Reliability.** Client and dedicated server exchange PING heartbeats, so a lone player is
+  no longer silent (idle sessions stay accurately alive) and the client notices a dead server
+  within ~25s and disconnects cleanly instead of hanging. The server also rate-limits each
+  connection (240 frames/s) so one broken client can't flood a lobby.
+- All of it is backward-compatible: new frame types are addressed per-recipient, so v1.3.0
+  clients simply ignore them.
+
 ## v1.3.0
 
 - **Dedicated server.** New standalone `GBA-PK-Server.lua` — a headless relay you can run on

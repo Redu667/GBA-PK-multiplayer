@@ -33,6 +33,8 @@ for _, a in ipairs(arg or {}) do if a == "-v" or a == "--verbose" then Verbose =
 local FRAME = 64                 -- every packet is exactly this many bytes
 local JOIN_GRACE   = 5           -- seconds a socket may sit connected without sending JOIN
 local IDLE_TIMEOUT = 15          -- seconds without any data before a client (with peers) is dropped
+local PING_INTERVAL = 5          -- seconds between server heartbeats to each client
+local RATE_LIMIT   = 240         -- max frames per client per second (SPOS ~30/s; battles burst)
 
 local function log(msg)  print(os.date("[%H:%M:%S] ") .. msg) end
 local function vlog(msg) if Verbose then log(msg) end end
@@ -100,6 +102,28 @@ local function broadcast(f, except)
 	end
 end
 
+-- Broadcast with the SendToID field rewritten to each recipient. Required for
+-- frame types older clients don't know (CHAT/PING): those fall through their
+-- handler chain, and an unknown frame addressed to someone else makes a v1.3.0
+-- client reply TBUS — addressed to *them*, it's ignored silently instead.
+local function broadcastAddressed(f, except)
+	for _, c in ipairs(clients) do
+		if c.joined and c ~= except then
+			sendTo(c, f:sub(1, 12) .. fid(c.id) .. f:sub(17))
+		end
+	end
+end
+
+-- Server-originated chat line (sender id 0 -> clients display "[server]").
+local function notice(text)
+	text = text:gsub("[%c~]", " ")
+	if #text > 43 then text = text:sub(1, 43) end
+	local payload = text .. string.rep("~", 43 - #text)
+	local f = "SERV" .. "FFFF" .. fid(0) .. fid(0) .. "CHAT" .. payload .. "U"
+	broadcastAddressed(f)
+	log("[notice] " .. text)
+end
+
 local function dropClient(c, reason)
 	if c.joined then
 		log("player " .. c.id .. " (" .. c.addr .. ") left: " .. reason ..
@@ -112,6 +136,9 @@ local function dropClient(c, reason)
 	pcall(function() c.sock:close() end)
 	for i, v in ipairs(clients) do
 		if v == c then table.remove(clients, i) break end
+	end
+	if c.joined then
+		notice((c.nick or ("Player " .. c.id)) .. " left  (" .. joinedCount() .. "/" .. MaxPlayers .. " online)")
 	end
 end
 
@@ -150,6 +177,7 @@ local function handleJoin(c, f)
 	end
 	log("player " .. c.id .. " joined from " .. c.addr .. " (game " .. c.gameid .. ")" ..
 		"  [" .. joinedCount() .. "/" .. MaxPlayers .. " online]")
+	notice("Player " .. c.id .. " joined  (" .. joinedCount() .. "/" .. MaxPlayers .. " online)")
 end
 
 local function handleFrame(c, f)
@@ -160,14 +188,47 @@ local function handleFrame(c, f)
 	local t = frameType(f)
 	c.lastSeen = socket.gettime()
 
+	-- Per-client rate limit: drop the excess instead of letting one broken or
+	-- malicious client flood everyone else.
+	local sec = math.floor(c.lastSeen)
+	if c.rateSec ~= sec then c.rateSec, c.rateCount, c.rateWarned = sec, 0, false end
+	c.rateCount = c.rateCount + 1
+	if c.rateCount > RATE_LIMIT then
+		if not c.rateWarned then
+			c.rateWarned = true
+			log("rate limit: player " .. tostring(c.id) .. " (" .. c.addr .. ") exceeded " ..
+				RATE_LIMIT .. " frames/s; dropping the excess")
+		end
+		return
+	end
+
 	if t == "JOIN" then
 		handleJoin(c, f)
 	elseif not c.joined then
 		vlog("frame " .. t .. " from unjoined " .. c.addr .. " ignored")
+	elseif t == "PING" then
+		-- liveness only; lastSeen is already refreshed above
+	elseif t == "CHAT" then
+		broadcastAddressed(f, c)                      -- everyone else sees the message
 	elseif t == "SPOS" then
 		c.posRaw = f
 		broadcast(f, c)                               -- same relay the in-game host does
 	elseif t == "NICK" then
+		-- Presence: keep nicknames unique. If this name is already taken by another
+		-- player, rewrite it to "NAME(id)" before caching/broadcasting, so everyone
+		-- else can tell the two apart (the owner still sees their own name locally).
+		local nick = f:sub(21, 63):gsub("~*$", "")
+		local base = nick:lower()
+		for _, other in ipairs(clients) do
+			if other.joined and other ~= c and other.nick and other.nick:lower() == base then
+				nick = nick:sub(1, 36) .. "(" .. c.id .. ")"
+				local payload = nick .. string.rep("~", 43 - #nick)
+				f = f:sub(1, 20) .. payload .. "U"
+				vlog("nickname collision: player " .. c.id .. " -> " .. nick)
+				break
+			end
+		end
+		c.nick = nick
 		c.nickRaw = f
 		broadcast(f, c)                               -- names always go to everyone
 	else
@@ -227,8 +288,14 @@ while true do
 			dropClient(c, "never joined")
 		elseif c.joined and joinedCount() >= 2 and (now - c.lastSeen) > IDLE_TIMEOUT then
 			-- clients only send traffic when they have peers, so only enforce
-			-- liveness when peers exist (a lone player idles silently by design)
+			-- liveness when peers exist (a lone player idles silently by design;
+			-- v1.4.0+ clients also heartbeat with PING, which refreshes lastSeen)
 			dropClient(c, "timed out")
+		elseif c.joined and (now - (c.lastPing or 0)) > PING_INTERVAL then
+			-- heartbeat so clients can tell the server is alive even when idle.
+			-- Addressed to the recipient so pre-1.4.0 clients ignore it silently.
+			c.lastPing = now
+			sendTo(c, buildFrame(c.gameid, 0, c.id, "PING", c.id))
 		end
 	end
 

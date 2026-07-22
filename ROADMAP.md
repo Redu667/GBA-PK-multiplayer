@@ -31,11 +31,15 @@ authority that owns session state, independent of any one player's emulator.
 Roughly in dependency order. Nothing here is committed; it's a direction.
 
 ### Near term — solidify shared world
-- [ ] **Server-owned player list & presence** — `who`/online count from the server, join/leave
-      notifications, basic anti-nick-collision on the server side.
-- [ ] **Chat** — text chat relayed by the server (the overlay/menu can render it on 0.11).
-- [ ] **Reliability** — heartbeat/keepalive, graceful reconnect that restores your player id,
-      server-side rate limiting.
+- [x] **Server-owned presence** *(v1.4.0)* — join/leave notices broadcast to everyone, online
+      count in each notice, and duplicate nicknames deduped server-side (`NAME` → `NAME(id)`).
+- [x] **Chat** *(v1.4.0)* — `say("message")` relays through the dedicated server (or the peer
+      host); messages show in the console and, on mGBA 0.11+, in an on-screen feed at the
+      bottom of the game. Follow-up: an in-game way to type (D-pad editor or quick-phrases).
+- [x] **Heartbeat + rate limiting** *(v1.4.0)* — client↔server PING keepalive (lone players
+      are no longer silent; clients detect a dead server and say so) and per-client frame
+      rate limiting on the server.
+- [ ] **Graceful reconnect** — rejoin after a drop and get your player id/state back.
 - [ ] **Rooms/channels** — multiple independent sessions on one server; matchmaking by game
       family (FR/LG vs R/S/E) enforced server-side.
 
