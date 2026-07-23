@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.7.0
+
+- **Persistent identity.** You are now *someone* on a server, durably. The mod saves your
+  reconnect token and nickname to `GBA-PK.identity` (next to the script) and restores them
+  on startup — "Welcome back, NAME." The dedicated server keeps token→nickname accounts in
+  `GBA-PK-Server.accounts`, so restarting the emulator, your PC or even the **server** brings
+  you back as yourself, greeted by name. Your nickname is **owned**: anyone else claiming it
+  is renamed to `NAME(id)` even while you're offline.
+- Running two instances on one PC (which share the identity file) is handled: a join that
+  presents a token belonging to a visibly-live connection is treated as a new player instead
+  of kicking the first instance.
+- New test harnesses (`tests/run_server_test.sh`, `tests/run_identity_test.sh`) run the
+  suites against a fresh server — including a genuine server restart for the identity test.
+
 ## v1.6.0
 
 - **Region rooms (multi-region stage 1).** One dedicated server now hosts **Kanto (FR/LG)

@@ -1,0 +1,3 @@
+# per-player / per-server local state (never commit)
+GBA-PK.identity
+GBA-PK-Server.accounts

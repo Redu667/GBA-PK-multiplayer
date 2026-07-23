@@ -74,7 +74,10 @@ persistent-identity item below; a single *save* spanning regions is engine-level
 belongs to the far end of the roadmap.
 
 ### Mid term — MMO-ish structure
-- [ ] **Persistent identity** — accounts/nicknames the server remembers across sessions.
+- [x] **Persistent identity** *(v1.7.0)* — the client keeps its identity (token + nickname)
+      in a small file next to the script, and the server keeps token→nickname accounts on
+      disk. Restart anything — emulator, PC, even the server — and you come back as
+      yourself; your nickname is protected even while you're offline.
 - [ ] **Global vs local visibility** — show only players on the same map/route (scales past 8).
 - [ ] **Spectating** trades/battles; **matchmaking** queues for battles.
 - [ ] **Trade/battle validation** on the server (prevent malformed or cheated packets).
