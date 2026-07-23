@@ -120,17 +120,21 @@ queued players and announces the match in chat.
 Peer hosting with `host()` still works exactly as before; the dedicated server is just an
 alternative. See **[ROADMAP.md](ROADMAP.md)** for where multiplayer is headed.
 
-**Chat.** Type `say("your message")` in the scripting box to talk to everyone in the session
-(works with a dedicated server or a peer host). Messages appear in the console, and on mGBA
-0.11+ also in a small feed at the bottom of the game screen that fades after a few seconds.
+**Chat.** On mGBA 0.11+, just press **T** in a session (configurable via `ChatKey` at the
+top of the script): a Gen-3 style compose box opens at the bottom of the game screen and
+you **type with your real keyboard** — Enter sends, Esc cancels. While the box is open your
+keystrokes are muted for the game, so keys that double as controls never move your
+character. Messages appear in the console and in an on-screen feed that fades after a few
+seconds. (`say("your message")` in the scripting box works everywhere, including mGBA
+0.10.x, with a dedicated server or a peer host.)
 The server announces joins and leaves in chat, keeps nicknames unique (a duplicate shows as
 `NAME(id)` to others), and exchanges heartbeats with clients so idle sessions stay alive and
 a dead server is noticed within seconds. If your connection drops, the mod **reconnects
 automatically** and the server gives you your player id and name back (it holds them for
 2 minutes) — everyone else just sees "NAME reconnected".
 
-**A real keyboard for chat.** Typing with `say()` works, but for actual conversations run
-the **chat companion** in a terminal next to your game:
+**Chat from outside the game.** There's also a **chat companion** you can run in a terminal
+(handy for a second monitor, or for friends who just want to talk):
 
 ```sh
 python3 chat/gba-pk-chat.py tramway.proxy.rlwy.net:31702 YourName
@@ -188,6 +192,7 @@ full list):
 | `who()` | List everyone in your session |
 | `status()` | Show connection status |
 | `say("msg")` | Send a chat message to everyone in the session |
+| `chat()` | Open the typed chat box (mGBA 0.11+; or just press the chat key, default `T`) |
 | `channel("name")` | Switch to a named channel on a dedicated server (empty = main) |
 | `duel()` | Queue for a matched battle on a dedicated server |
 | `disconnect()` | Leave the current session |

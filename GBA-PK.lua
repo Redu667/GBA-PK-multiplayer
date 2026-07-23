@@ -11,7 +11,8 @@ local ServerIP   = "127.0.0.1"   -- the host's IP address (only used when joinin
 local Port       = 4096          -- must be the same for everyone in the session
 local MaxPlayers = 4             -- players per session (supports up to 8)
 local AutoReconnect = true       -- rejoin a dedicated server automatically if the link drops
-local ScriptVersion = "2.1.0"    -- GBA-PK release version
+local ChatKey    = "t"           -- keyboard key that opens the typed chat box (mGBA 0.11+)
+local ScriptVersion = "2.2.0"    -- GBA-PK release version
 -- ======================================================================
 local IPAddress  = ServerIP      -- internal alias (do not edit)
 -- GBA-PK: ServerIP may be "host:port" (e.g. a Railway TCP-proxy endpoint);
@@ -16374,6 +16375,58 @@ end
 -- GBA-PK.lua; if the draw API or font isn't available (e.g. mGBA 0.10.x) it
 -- reports unavailable and the menu falls back to ConsoleMenuUI.
 local MENU_FONT_FILE = "SourceSans3-Regular.otf"
+
+-- ---- Gen-3 dialog styling (shared by the menu and the chat compose box) ----
+-- The real FR/LG textbox: a rounded dark outline, a beveled blue-grey border,
+-- a light inner highlight and an off-white panel, with text drawn twice for
+-- the classic drop shadow. Everything is plain filled rectangles; each layer
+-- gets 1px-rounded corners by drawing it as two overlapping rects.
+local G3 = {
+	outline  = 0xFF38404A,   -- window frame: outermost dark line
+	border   = 0xFF8898B8,   -- window frame: blue-grey band
+	inner    = 0xFFDEE6F2,   -- window frame: light bevel
+	panel    = 0xFFF8F8F0,   -- window fill (Gen-3 paper white)
+	text     = 0xFF50504A,   -- body text (dark grey)
+	shadow   = 0xFFD8D8C8,   -- body text shadow
+	blue     = 0xFF3060C0,   -- accent text (FR/LG "male player" blue)
+	blueSh   = 0xFFC8D8F0,   -- accent text shadow
+	grey     = 0xFF888078,   -- de-emphasised text (subtitles, footers)
+	arrow    = 0xFFC83830,   -- selection arrow (Gen-3 menu red)
+}
+local function gen3Frame(p, x, y, w, h)
+	local function rounded(color, rx, ry, rw, rh)
+		p:setFillColor(color)
+		p:drawRectangle(rx + 1, ry, rw - 2, rh)
+		p:drawRectangle(rx, ry + 1, rw, rh - 2)
+	end
+	p:setBlend(false)
+	p:setFill(true)
+	p:setStrokeWidth(0)
+	rounded(G3.outline, x, y, w, h)
+	rounded(G3.border, x + 1, y + 1, w - 2, h - 2)
+	rounded(G3.inner, x + 2, y + 2, w - 4, h - 4)
+	rounded(G3.panel, x + 3, y + 3, w - 6, h - 6)
+end
+local function gen3Text(p, text, x, y, color, shadow)
+	p:setBlend(true)
+	if shadow then
+		p:setFillColor(shadow)
+		p:drawText(text, x + 1, y + 1)
+	end
+	p:setFillColor(color)
+	p:drawText(text, x, y)
+end
+local function gen3Arrow(p, x, y)
+	-- small solid right-pointing triangle, drawn as 1px columns
+	p:setBlend(false)
+	p:setFill(true)
+	p:setFillColor(G3.arrow)
+	p:drawRectangle(x, y, 1, 7)
+	p:drawRectangle(x + 1, y + 1, 1, 5)
+	p:drawRectangle(x + 2, y + 2, 1, 3)
+	p:drawRectangle(x + 3, y + 3, 1, 1)
+end
+
 local ScreenMenuUI = { _init = false, _ok = false, _visible = false }
 function ScreenMenuUI:_setup()
 	if self._init then return self._ok end
@@ -16442,26 +16495,16 @@ function ScreenMenuUI:render(screen)
 		p:setStrokeWidth(0)
 		p:setFillColor(0x00000000)
 		p:drawRectangle(0, 0, SW, SH)
-		-- border + solid panel background (opaque so each redraw fully clears the last)
-		p:setFillColor(0xFF404048)
-		p:drawRectangle(bx, by, bw, bh)
-		p:setFillColor(0xFFF8F4E8)
-		p:drawRectangle(bx + 1, by + 1, bw - 2, bh - 2)
-		-- title bar
-		p:setFillColor(0xFF4868B0)
-		p:drawRectangle(bx + 1, by + 1, bw - 2, 11)
-		-- text blends onto the panel so glyph edges stay smooth
-		p:setBlend(true)
+		-- proper FR/LG dialog window instead of flat rectangles
+		gen3Frame(p, bx, by, bw, bh)
 		-- strip the console-style "=====" decoration from the title on screen
 		local title = (screen.title or ""):gsub("^[%s=]+", ""):gsub("[%s=]+$", "")
 		p:setFontSize(8)
-		p:setFillColor(0xFFFFFFFF)
-		p:drawText(title, bx + 4, by + 2)
-		local y = by + 14
+		gen3Text(p, title, bx + 6, by + 4, G3.blue, G3.blueSh)
+		local y = by + 15
 		if screen.subtitle then
 			p:setFontSize(6)
-			p:setFillColor(0xFF807860)
-			p:drawText(screen.subtitle, bx + 4, y)
+			gen3Text(p, screen.subtitle, bx + 6, y, G3.grey)
 			y = y + 8
 		end
 		y = y + 2
@@ -16469,24 +16512,16 @@ function ScreenMenuUI:render(screen)
 		p:setFontSize(8)
 		for i = 1, #opts do
 			if i == screen.selected then
-				p:setBlend(false)
-				p:setFillColor(0xFF4868B0)
-				p:drawRectangle(bx + 2, y - 1, bw - 4, 10)
-				p:setBlend(true)
-				p:setFillColor(0xFFFFFFFF)
-				p:drawText("> " .. opts[i], bx + 5, y)
-			else
-				p:setFillColor(0xFF383830)
-				p:drawText("   " .. opts[i], bx + 5, y)
+				gen3Arrow(p, bx + 6, y + 2)
 			end
+			gen3Text(p, opts[i], bx + 12, y, G3.text, G3.shadow)
 			y = y + 10
 		end
 		local foot = screen.footer or {}
 		p:setFontSize(6)
-		p:setFillColor(0xFF908868)
-		local fy = by + bh - 3 - (#foot * 8)
+		local fy = by + bh - 5 - (#foot * 8)
 		for i = 1, #foot do
-			p:drawText(foot[i], bx + 4, fy)
+			gen3Text(p, foot[i], bx + 6, fy, G3.grey)
 			fy = fy + 8
 		end
 	end)
@@ -16563,16 +16598,24 @@ end
 function ChatOverlay:_tick()
 	if not self._ok then return end
 	pcall(function()
+		self._frames = (self._frames or 0) + 1
+		local composing = ChatInput ~= nil and ChatInput:isActive()
+		local blink = (self._frames % 64) < 32          -- compose-cursor blink phase
 		local lines = self:_visibleLines()
 		--the menu owns the whole screen while it's open; get out of its way
-		if MenuActive or #lines == 0 then
+		if MenuActive or (#lines == 0 and not composing) then
 			if self._shown then self:_clear() end
-		elseif self._dirty or not self._shown then
+		elseif self._dirty or not self._shown
+		       or composing ~= self._wasComposing
+		       or (composing and blink ~= self._lastBlink) then
 			self._dirty = false
+			self._lastBlink = blink
 			self:_clear()
 			local p = self._painter
 			local rowH = 9
-			local y0 = self._sh - 8 - (#lines * rowH)
+			--while composing, the feed sits above the compose box
+			local boxH = composing and 15 or 0
+			local y0 = self._sh - 8 - boxH - (#lines * rowH)
 			p:setFill(true)
 			p:setStrokeWidth(0)
 			for i, line in ipairs(lines) do
@@ -16586,11 +16629,21 @@ function ChatOverlay:_tick()
 				p:setFillColor(0xFFFFFFFF)
 				p:drawText(line, 5, y)
 			end
+			if composing then
+				--Gen-3 style one-line compose window pinned to the bottom edge
+				local by = self._sh - 2 - boxH
+				gen3Frame(p, 2, by, self._sw - 4, boxH)
+				p:setFontSize(7)
+				gen3Text(p, "Say:", 7, by + 3, G3.blue, G3.blueSh)
+				local shown = ChatInput:text() .. (blink and "_" or "")
+				gen3Text(p, shown, 26, by + 3, G3.text, G3.shadow)
+			end
 			self._shown = true
 		end
+		self._wasComposing = composing
 		--drop the feed once everything expired (checked once a second is fine,
 		--but this is cheap enough to do inline)
-		if self._shown and #self:_visibleLines() == 0 then self:_clear() end
+		if self._shown and not composing and #self:_visibleLines() == 0 then self:_clear() end
 		self._layer:setPosition(0, 0)
 		self._layer:update()
 	end)
@@ -16601,6 +16654,103 @@ end
 function ChatShow(name, text)
 	console:log("[chat] " .. name .. ": " .. text)
 	ChatOverlay:push(name, text)
+end
+
+-- ================== GBA-PK typed chat (mGBA 0.11+ keyboards) =================
+-- A real typed chat box: press the chat key (ChatKey, default "t") in a session
+-- and a Gen-3 style compose window opens at the bottom of the screen. Type with
+-- the actual keyboard (0.11's "key" script events deliver unicode codepoints +
+-- modifiers), Enter sends through say(), Esc cancels, Backspace edits. While the
+-- box is open MenuLogic swallows ALL GBA input, so keys that double as game
+-- controls never reach the game. On 0.10.x (no key events) none of this
+-- activates and chat stays say()/companion-only.
+ChatInput = { _init = false, _ok = false, _active = false, _buf = "" }
+function ChatInput:_setup()
+	if self._init then return self._ok end
+	self._init = true
+	if not callbacks or not ChatOverlay:_setup() then return false end
+	local ok = pcall(function()
+		callbacks:add("key", function(ev)
+			pcall(function() ChatInput:_onKey(ev) end)
+		end)
+	end)
+	self._ok = ok == true
+	return self._ok
+end
+function ChatInput:available() return self:_setup() end
+function ChatInput:isActive() return self._active end
+function ChatInput:text() return self._buf end
+function ChatInput:open()
+	if not (Hosting or Connected) then
+		console:log("Not connected - join or host a session first.")
+		return
+	end
+	if not self:_setup() then
+		console:log('This mGBA has no keyboard-event API (needs 0.11+) - use say("...") instead.')
+		return
+	end
+	self._active = true
+	self._buf = ""
+	ChatOverlay._dirty = true
+end
+function ChatInput:close()
+	self._active = false
+	self._buf = ""
+	ChatOverlay._dirty = true
+end
+function ChatInput:_onKey(ev)
+	if ev == nil then return end
+	-- only act on fresh presses, never on release/held (HELD can fire per-frame)
+	local state, key, mods = ev.state, ev.key, ev.modifiers or 0
+	local ks = C and C.INPUT_STATE
+	if ks and state ~= ks.DOWN then return end
+	local hotMods = 0
+	if C and C.KMOD then
+		hotMods = (C.KMOD.CONTROL or 0) | (C.KMOD.ALT or 0) | (C.KMOD.SUPER or 0)
+	end
+	if not self._active then
+		-- box is closed: the chat key opens it (session only, and not over the menu)
+		if MenuActive or not (Hosting or Connected) then return end
+		if type(key) == "number" and key >= 32 and key < 127 and (mods & hotMods) == 0 then
+			if string.char(key):lower() == tostring(ChatKey):sub(1, 1):lower() then self:open() end
+		end
+		return
+	end
+	-- box is open: editing keys first
+	if C and C.KEY then
+		if key == C.KEY.ESCAPE then self:close() return end
+		if key == C.KEY.ENTER or (C.KEY.KP_ENTER and key == C.KEY.KP_ENTER) then
+			local text = self._buf
+			self:close()
+			if text ~= "" then say(text) end
+			return
+		end
+		if key == C.KEY.BACKSPACE then
+			if #self._buf > 0 then
+				self._buf = string.sub(self._buf, 1, -2)
+				ChatOverlay._dirty = true
+			end
+			return
+		end
+	end
+	-- printable ASCII only (the 64-byte protocol is ASCII); the event carries the
+	-- unshifted key, so apply Shift/case to letters ourselves
+	if type(key) ~= "number" or key < 32 or key >= 127 then return end
+	if (mods & hotMods) ~= 0 then return end
+	local ch = string.char(key)
+	if C and C.KMOD and string.match(ch, "%a") then
+		if (mods & (C.KMOD.SHIFT or 0)) ~= 0 then ch = string.upper(ch) else ch = string.lower(ch) end
+	end
+	if ch == "~" then ch = "-" end        -- '~' is the protocol's padding character
+	if #self._buf < 43 then
+		self._buf = self._buf .. ch
+		ChatOverlay._dirty = true
+	end
+end
+
+-- Console command: open the typed chat box (same as pressing the chat key).
+function chat()
+	ChatInput:open()
 end
 
 -- Send a chat message to everyone in the session.
@@ -16747,7 +16897,8 @@ function DrawSessionMenu()
 		selected = SessionMenuSel,
 		footer = {
 			"Skin: Left/Right to change. Everyone sees it live.",
-			"Players: " .. #players .. "/" .. MaxPlayers .. ".  Select closes.",
+			"Players: " .. #players .. "/" .. MaxPlayers
+				.. ".  " .. string.upper(tostring(ChatKey):sub(1, 1)) .. ": chat   Select: close",
 		},
 	})
 end
@@ -17025,6 +17176,12 @@ function MenuLogic()
 	local k = emu:getKeys()
 	local pressed = k & (~MenuPrevKeys)
 	MenuPrevKeys = k
+	-- typed chat open: swallow ALL GBA input so keys that double as game
+	-- controls (arrows, x/z, Enter=Start...) only feed the compose box
+	if ChatInput and ChatInput:isActive() then
+		emu:clearKeys(KEY_ALL)
+		return
+	end
 	if not MenuActive then
 		-- Not in the menu: let the game have its input, but Select opens the menu.
 		-- Which menu depends on state: the in-session menu (name/skin/disconnect)
@@ -17079,6 +17236,7 @@ function Help(page)
 		console:log("->status() --Show connection status")
 		console:log("->netlog(on) --Toggle verbose network logging to diagnose a failed join")
 		console:log("->say(\"msg\") --Send a chat message to everyone in the session")
+		console:log("->chat() --Open the typed chat box (mGBA 0.11+; or press the chat key, default T, in-game)")
 		console:log("->channel(\"name\") --Switch to a named channel on a dedicated server (empty = main)")
 		console:log("->duel() --Queue for a matched battle on a dedicated server")
 		console:log("->disconnect() --Leave the current session")
@@ -17161,4 +17319,9 @@ else
 	-- the menu's key presses; it must run before Interaction, which also reads keys.
 	callbacks:add("keysRead", MenuLogic)
 	callbacks:add("keysRead", Interaction)
+
+	-- Register the typed-chat key listener up front (not lazily): the chat key
+	-- can only open the box if the "key" callback is already installed. No-op on
+	-- mGBA without key events (0.10.x).
+	ChatInput:_setup()
 end
