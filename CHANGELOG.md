@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.2.0
+
+Scope release: we surveyed how every notable Pokémon multiplayer project is built
+(PokeMMO, Pokemon Revolution Online, PokeOne, Showdown, Emerald Rogue, Archipelago, the
+emulator-fork graveyard) and locked the project's shape in `ROADMAP.md`: **a multiplayer
+mod on stock mGBA + a dedicated server + companion apps — no emulator fork, ever.** The
+same research showed the two features that seemed to need a fork don't, so this release
+ships both:
+
+- **Type chat with your real keyboard, in the game window.** On mGBA 0.11+, press the
+  chat key (default `T`, configurable via `ChatKey` at the top of the script) while in a
+  session: a Gen-3 style compose box opens at the bottom of the screen. Type normally —
+  Enter sends, Esc cancels, Backspace edits — and while the box is open your keystrokes
+  are muted for the game, so keys that double as controls never move your character.
+  `chat()` in the scripting box opens it too. (Uses 0.11's `key` script events; on
+  0.10.x chat stays `say()`/companion-only.)
+- **The menu finally looks like FireRed.** The on-screen menu is drawn as a real Gen-3
+  dialog window — rounded dark outline, beveled blue-grey border, paper-white panel,
+  drop-shadowed text and the classic red selection arrow — replacing the flat colored
+  rectangles of v2.1.0.
+- Roadmap: fork/custom-client plans removed permanently, long-term MMO features marked
+  aspirational, multi-region "one-click travel" reframed as a launcher/packaging step.
+
 ## v2.1.0
 
 - **The menu looks like the game now.** The on-screen menu swapped its dark debug-panel look
