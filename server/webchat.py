@@ -43,6 +43,10 @@ PAGE = """<!doctype html>
   header { padding: 10px 14px; background: #2b3348; color: #fff;
            font-weight: 600; border-bottom: 3px solid #8898b8; }
   header small { opacity: .7; font-weight: 400; margin-left: 8px; }
+  #who { padding: 6px 14px; background: #222839; color: #b8c2d8;
+         font-size: 13px; border-bottom: 1px solid #39415a;
+         white-space: nowrap; overflow-x: auto; }
+  #who b { color: #e8e8e2; font-weight: 600; }
   #log { flex: 1; overflow-y: auto; padding: 10px 14px; }
   #log div { margin: 3px 0; word-wrap: break-word; }
   #log .sys { opacity: .65; font-style: italic; }
@@ -58,6 +62,7 @@ PAGE = """<!doctype html>
   button:disabled { opacity: .5; }
 </style></head><body>
 <header>GBA-PK chat<small id="st">connecting…</small></header>
+<div id="who">nobody in game yet</div>
 <div id="log"></div>
 <form id="f">
   <input id="name" maxlength="10" placeholder="name" autocomplete="nickname">
@@ -81,7 +86,18 @@ PAGE = """<!doctype html>
   function connect() {
     ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
     ws.onopen = () => { st.textContent = "online"; send.disabled = false; retry = 0; };
-    ws.onmessage = (e) => { const m = JSON.parse(e.data); add(m.line, m.sys); };
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.who !== undefined) {
+        const w = document.getElementById("who");
+        if (!m.who.length) { w.textContent = "nobody in game yet"; return; }
+        w.innerHTML = "<b>" + m.who.length + " in game:</b> " + m.who.map(
+          ([room, name]) => name.replace(/[<>&]/g, "") + " (" + room.replace(/[<>&]/g, "") + ")"
+        ).join(", ");
+        return;
+      }
+      add(m.line, m.sys);
+    };
     ws.onclose = () => {
       st.textContent = "reconnecting…"; send.disabled = true;
       setTimeout(connect, Math.min(1000 * ++retry, 10000));
@@ -136,7 +152,10 @@ class Bridge:
         self.sock = None
         self.id = None
         self.nicks = {}
+        self.who = []                     # [(room, name)] last completed WHOQ answer
+        self._who_partial = []
         self.on_chat = lambda line: None
+        self.on_who = lambda who: None
         self.running = True
         threading.Thread(target=self._connect_loop, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()
@@ -186,6 +205,7 @@ class Bridge:
                 if t == b"STRT":
                     self.id = int(f[20:24]) - 1000
                     sock.sendall(frame("CHAT", self.id, 0, "NICK", 0, payload=padded(self.name)))
+                    sock.sendall(frame("CHAT", self.id, 0, "WHOQ", 0))
                     print(f"* joined the GBA-PK server as player {self.id}")
                 elif t == b"CHAT":
                     pid = pid_of(f)
@@ -196,16 +216,31 @@ class Bridge:
                         self.on_chat(f"{who}: {payload_of(f)}")
                 elif t == b"NICK":
                     self.nicks[pid_of(f)] = payload_of(f)
+                elif t == b"WHOR":
+                    p = payload_of(f)
+                    if p == ".":
+                        self.who = self._who_partial
+                        self._who_partial = []
+                        self.on_who(self.who)
+                    else:
+                        room, _, who = p.partition("|")
+                        # companions (the CHAT room) aren't players; skip them
+                        if room != "CHAT":
+                            self._who_partial.append((room, who))
                 elif t == b"RFSE":
                     print("* game server refused the connection (full?)")
 
     def _heartbeat(self) -> None:
+        tick = 0
         while self.running:
             time.sleep(4)
+            tick += 1
             sock, me = self.sock, self.id
             if sock is not None and me is not None:
                 try:
                     sock.sendall(frame("CHAT", me, 0, "PING", 0))
+                    if tick % 2 == 0:                 # refresh the roster every ~8s
+                        sock.sendall(frame("CHAT", me, 0, "WHOQ", 0))
                 except OSError:
                     pass
 
@@ -226,7 +261,10 @@ class WebClients:
             self.conns.discard(conn)
 
     def broadcast(self, line: str, sys_line: bool = False) -> None:
-        data = ws_text_frame(json.dumps({"line": line, "sys": sys_line}))
+        self.broadcast_json({"line": line, "sys": sys_line})
+
+    def broadcast_json(self, obj: dict) -> None:
+        data = ws_text_frame(json.dumps(obj))
         with self.lock:
             dead = []
             for c in self.conns:
@@ -308,6 +346,7 @@ def make_handler(bridge: Bridge, clients: WebClients):
             clients.add(conn)
             conn.sendall(ws_text_frame(json.dumps(
                 {"line": "connected - messages reach players in-game", "sys": True})))
+            conn.sendall(ws_text_frame(json.dumps({"who": bridge.who})))
             last_send = 0.0
             try:
                 while True:
@@ -350,6 +389,7 @@ def main() -> None:
     clients = WebClients()
     bridge = Bridge(host, int(port or 4096), args.name)
     bridge.on_chat = clients.broadcast
+    bridge.on_who = lambda who: clients.broadcast_json({"who": who})
 
     httpd = http.server.ThreadingHTTPServer(("0.0.0.0", args.http_port),
                                             make_handler(bridge, clients))

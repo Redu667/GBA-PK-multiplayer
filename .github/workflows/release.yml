@@ -19,6 +19,14 @@ on:
         description: "Create as a draft (review before it goes public)"
         type: boolean
         default: true
+      play_packages:
+        description: "Also build one-click play packages (bundled mGBA dev build)"
+        type: boolean
+        default: true
+      default_server:
+        description: "Optional host:port baked into the play packages' ServerIP"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -43,17 +51,73 @@ jobs:
         run: |
           VERSION="${{ github.event.inputs.version }}"
           STAGE="GBA-PK-v${VERSION}"
-          mkdir -p "$STAGE"
+          mkdir -p "$STAGE/server" "$STAGE/chat"
           cp GBA-PK.lua \
-             server/GBA-PK-Server.lua \
              SourceSans3-Regular.otf \
              SourceSans3-Regular.LICENSE.txt \
              README.md \
              CHANGELOG.md \
              ROADMAP.md \
+             ANDROID.md \
              "$STAGE"/
+          cp server/GBA-PK-Server.lua server/webchat.py server/Dockerfile server/README.md "$STAGE/server/"
+          cp chat/gba-pk-chat.py chat/gba-pk-discord.py "$STAGE/chat/"
           zip -r "GBA-PK-v${VERSION}.zip" "$STAGE"
           ls -la "GBA-PK-v${VERSION}.zip"
+
+      - name: Build one-click play packages (bundled mGBA)
+        if: ${{ github.event.inputs.play_packages == 'true' }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          DEFAULT_SERVER="${{ github.event.inputs.default_server }}"
+
+          # Put the mod (and optional preset server) into a directory of mGBA files
+          add_mod() { # $1 = target dir
+            cp GBA-PK.lua SourceSans3-Regular.otf SourceSans3-Regular.LICENSE.txt "$1/"
+            if [ -n "$DEFAULT_SERVER" ]; then
+              sed -i 's|^\(local ServerIP   = \)"[^"]*"|\1"'"$DEFAULT_SERVER"'"|' "$1/GBA-PK.lua"
+            fi
+          }
+          quickstart() { # $1 = target file, $2 = how to launch, $3 = mGBA build id
+            {
+              echo "GBA-PK - play in three steps"
+              echo "1. $2"
+              echo "2. File > Load ROM: your own FireRed/LeafGreen/Ruby/Sapphire/Emerald ROM (not included)."
+              echo "3. Press Select in-game for the menu: Join the server (or Set IP first)."
+              echo ""
+              echo "Chat: press T and type. Enter sends, Esc cancels."
+              [ -n "$DEFAULT_SERVER" ] && echo "Preset server: $DEFAULT_SERVER"
+              echo ""
+              echo "Bundled emulator: official mGBA development build ($3)"
+              echo "from https://mgba.io (the 0.11 series the on-screen menu and chat need)."
+              echo "Settings are portable: everything stays inside this folder."
+            } > "$1"
+          }
+
+          # ---- Windows 64-bit ----
+          curl -fsSL -o mgba-win64.7z https://s3.amazonaws.com/mgba/mGBA-build-latest-win64.7z
+          7z x -y mgba-win64.7z >/dev/null
+          MGBA_DIR="$(find . -maxdepth 1 -type d -name 'mGBA-build-*win64*' | head -1)"
+          MGBA_BUILD="$(basename "$MGBA_DIR")"
+          PLAYW="GBA-PK-play-win64-v${VERSION}"
+          mv "$MGBA_DIR" "$PLAYW"
+          add_mod "$PLAYW"
+          printf '@echo off\r\nstart "" "%%~dp0mGBA.exe" --script "%%~dp0GBA-PK.lua"\r\n' > "$PLAYW/Play GBA-PK.bat"
+          quickstart "$PLAYW/QUICKSTART.txt" 'Double-click "Play GBA-PK.bat".' "$MGBA_BUILD"
+          zip -r "$PLAYW.zip" "$PLAYW"
+
+          # ---- Linux x64 (AppImage) ----
+          PLAYL="GBA-PK-play-linux64-v${VERSION}"
+          mkdir -p "$PLAYL"
+          curl -fsSL -o "$PLAYL/mGBA.appimage" https://s3.amazonaws.com/mgba/mGBA-build-latest-appimage-x64.appimage
+          chmod +x "$PLAYL/mGBA.appimage"
+          add_mod "$PLAYL"
+          printf '#!/bin/sh\nDIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$DIR/mGBA.appimage" --script "$DIR/GBA-PK.lua" "$@"\n' > "$PLAYL/play-gba-pk.sh"
+          chmod +x "$PLAYL/play-gba-pk.sh"
+          quickstart "$PLAYL/QUICKSTART.txt" 'Run ./play-gba-pk.sh' "mGBA-build-latest-appimage-x64 ($(date -u +%F))"
+          tar czf "$PLAYL.tar.gz" "$PLAYL"
+
+          ls -la GBA-PK-play-*
 
       - name: Extract this version's changelog notes
         run: |
@@ -77,17 +141,18 @@ jobs:
           VERSION="${{ github.event.inputs.version }}"
           DRAFT_FLAG=""
           if [ "${{ github.event.inputs.draft }}" = "true" ]; then DRAFT_FLAG="--draft"; fi
+          ASSETS="GBA-PK-v${VERSION}.zip GBA-PK.lua server/GBA-PK-Server.lua SourceSans3-Regular.otf"
+          for f in GBA-PK-play-*.zip GBA-PK-play-*.tar.gz; do
+            [ -f "$f" ] && ASSETS="$ASSETS $f"
+          done
+          echo "Assets: $ASSETS"
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             echo "Release v${VERSION} already exists; uploading/overwriting assets."
-            gh release upload "v${VERSION}" \
-              "GBA-PK-v${VERSION}.zip" GBA-PK.lua server/GBA-PK-Server.lua SourceSans3-Regular.otf --clobber
+            gh release upload "v${VERSION}" $ASSETS --clobber
           else
             gh release create "v${VERSION}" \
               --title "v${VERSION}" \
               --notes-file RELEASE_NOTES.md \
               $DRAFT_FLAG \
-              "GBA-PK-v${VERSION}.zip" \
-              GBA-PK.lua \
-              server/GBA-PK-Server.lua \
-              SourceSans3-Regular.otf
+              $ASSETS
           fi

@@ -476,6 +476,18 @@ local function handleFrame(c, f)
 		vlog("malformed TRAD from player " .. c.id .. ", dropped")
 	elseif t == "PING" then
 		-- liveness only; lastSeen is already refreshed above
+	elseif t == "WHOQ" then
+		-- who's online: reply (to the asker only) with one WHOR per joined
+		-- player, payload "room|name", then a lone "." as terminator. Only
+		-- companions that know WHOQ ask, so old clients never see WHOR.
+		for _, o in ipairs(clients) do
+			if o.joined then
+				local line = o.room .. "|" .. (o.nick or ("Player " .. o.id))
+				if #line > 43 then line = line:sub(1, 43) end
+				sendTo(c, "SERV" .. "FFFF" .. fid(0) .. fid(c.id) .. "WHOR" .. line .. string.rep("~", 43 - #line) .. "U")
+			end
+		end
+		sendTo(c, "SERV" .. "FFFF" .. fid(0) .. fid(c.id) .. "WHOR" .. "." .. string.rep("~", 42) .. "U")
 	elseif t == "CHAT" then
 		-- Chat crosses rooms (one world socially). Same-room clients get the raw
 		-- frame and resolve the name from their player list; other rooms can't,

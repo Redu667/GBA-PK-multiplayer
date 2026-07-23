@@ -88,14 +88,10 @@ toward the same experience on our architecture:
    (FR/LG) and Hoenn (R/S/E) players at the same time. Gameplay (positions, trades,
    battles) is scoped to your region's room; **chat and presence are shared**, so the
    server feels like one world even though play happens per-region.
-2. **Region travel** *(works today, semi-manual)* — "take the ferry": save, load the other
-   region's ROM in mGBA, rejoin — the reconnect token keeps your identity and the server
-   rooms you by whatever game you're now playing, so switching ROMs *is* switching regions.
-   Polish (an in-menu "travel" flow that walks you through it) still to come.
-3. **Guided travel** — polish step 2 into an in-menu "travel" flow that walks you
-   through the ROM swap (and, where scripting allows, pre-fills the rejoin). A tiny
-   *launcher* script next to mGBA could automate the swap without touching the emulator
-   itself; a custom mGBA build is out of scope (see the scope decision above).
+2. **Region travel** *(done, v2.3.0)* — "take the ferry" from the Select menu: pick
+   **Travel** (or type `travel()`), load the other region's ROM when prompted, and the
+   mod rejoins the server as you automatically — the reconnect token keeps your identity
+   and the server rooms you by whatever game you're now playing.
 
 You need to own each region's ROM, and each region keeps its own save file. A single
 *account* spanning regions (one name, shared friends/chat identity) comes from the
@@ -165,10 +161,10 @@ top for the research behind this.
   Android GBA emulator exposes mGBA's scripting (RetroArch cores can't load scripts), so
   phones join the *chat* via Discord/Termux rather than the overworld — until upstream
   grows script support on Android.
-- **Packaging (the surviving sliver of the old "bundling" idea):** a zip/installer that
-  lays out *stock* mGBA + script + font + a preconfigured server list is still fair game —
-  that's distribution, not a fork. Anything requiring us to compile a modified emulator
-  is out.
+- **Packaging (the surviving sliver of the old "bundling" idea):** *shipped, v2.3.0* —
+  every release carries one-click play packages (stock mGBA dev build + mod + font +
+  launcher, optionally with a server address baked in). That's distribution, not a fork.
+  Anything requiring us to compile a modified emulator remains out.
 
 Short version: **stock mGBA is the base, full stop**; if a need ever truly outgrows the
 scripting API, the answer is contributing the missing primitive upstream, not forking.

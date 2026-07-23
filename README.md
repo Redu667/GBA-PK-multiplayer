@@ -42,8 +42,14 @@ Romhacks that relocate RAM structures (for example, hacks that move the save blo
 
 ## Getting started (up to 4 players)
 
-Everyone uses the **same single file**, `GBA-PK.lua` — there is no longer a separate
-client and server script.
+**Fastest way (Windows/Linux): grab a play package.** Each
+[release](../../releases) ships `GBA-PK-play-win64-*.zip` and
+`GBA-PK-play-linux64-*.tar.gz` — mGBA (the right 0.11 build), the mod, and the font
+already set up. Unzip, run **`Play GBA-PK.bat`** (or `./play-gba-pk.sh`), open your own
+ROM, press **Select**. Skip straight to step 3 below.
+
+Setting it up by hand instead: everyone uses the **same single file**, `GBA-PK.lua` —
+there is no longer a separate client and server script.
 
 1. Open your Gen 3 Pokémon ROM in mGBA (0.10.x or 0.11).
 2. Load **`GBA-PK.lua`** via **Tools → Scripting → Load script…**

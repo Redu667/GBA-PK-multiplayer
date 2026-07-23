@@ -1,7 +1,23 @@
 # Changelog
 
-## Unreleased
+## v2.3.0
 
+The "easiest way in yet" release: one-click play packages, region travel from the menu,
+a live who's-online roster, and the phone chat stack.
+
+- **One-click play packages.** Each release now ships `GBA-PK-play-win64-*.zip` and
+  `GBA-PK-play-linux64-*.tar.gz`: an official mGBA 0.11 development build with the mod,
+  font and a launcher (`Play GBA-PK.bat` / `play-gba-pk.sh`) preinstalled — download,
+  unzip, open your ROM, press Select. Settings stay inside the folder (portable mode).
+  Server owners can bake their address in by passing `default_server` to the Release
+  workflow.
+- **Region travel from the menu.** In a dedicated-server session, pick **Travel** in the
+  Select menu (or type `travel()`): the mod keeps your identity, walks you through
+  loading the other region's ROM, and rejoins the server automatically as you — Hoenn to
+  Kanto and back is now save → swap → done.
+- **Who's online, at a glance.** The web chat page shows a live roster of everyone in
+  game (name + region, refreshed every few seconds) via a new backwards-compatible
+  `WHOQ`/`WHOR` server query that companions can use too.
 - **Web chat page — phones just open a URL.** New `server/webchat.py` (Python 3 stdlib
   only, WebSocket hand-rolled) serves a mobile-friendly chat page bridged into the
   session, and the server Docker image now runs it alongside the Lua server: on Railway,

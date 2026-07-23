@@ -146,13 +146,26 @@ def main():
 
         # browser connects; greeted with a system line
         ws = WsClient("127.0.0.1", HTTP_PORT)
-        hello = json.loads(ws.recv_text())
+        rosters = []
+
+        def recv_line(timeout=5.0):
+            # skim roster pushes (collected for the who checks) between lines
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                m = json.loads(ws.recv_text(timeout))
+                if "who" in m:
+                    rosters.append(m["who"])
+                else:
+                    return m
+            return {}
+
+        hello = recv_line()
         check(hello.get("sys") is True, "browser gets the connected notice")
 
         # browser -> game
         ws.send_text(json.dumps({"name": "Phone", "text": "hi from a browser"}))
-        echo = json.loads(ws.recv_text())
-        check("Phone: hi from a browser" in echo["line"], "sender sees the local echo")
+        echo = recv_line()
+        check("Phone: hi from a browser" in echo.get("line", ""), "sender sees the local echo")
         pump(3.0)
         wrapped = next((p for pid, p in game_chat if pid == 0 and "hi from a browser" in p), None)
         check(wrapped is not None, "browser chat reached the in-game client")
@@ -164,10 +177,23 @@ def main():
         got = None
         deadline = time.time() + 5
         while time.time() < deadline and got is None:
-            m = json.loads(ws.recv_text())
-            if "hello web people" in m["line"]:
+            m = recv_line()
+            if "hello web people" in m.get("line", ""):
                 got = m["line"]
         check(got is not None, "in-game chat reached the browser: " + repr(got))
+
+        # who's-online roster: must list the in-game player (Kanto), never the
+        # gateway's own companion slot (CHAT room). Refreshes every ~8s.
+        roster = next((w for w in rosters if w), None)
+        deadline = time.time() + 15
+        while time.time() < deadline and roster is None:
+            m = json.loads(ws.recv_text(timeout=12))
+            if "who" in m and m["who"]:
+                roster = m["who"]
+        rooms = [r for r, _ in (roster or [])]
+        check(roster is not None and "Kanto" in rooms,
+              "web page roster lists the in-game player: " + repr(roster))
+        check("CHAT" not in rooms, "roster hides companion slots")
         game.close()
     finally:
         gw.send_signal(signal.SIGKILL)

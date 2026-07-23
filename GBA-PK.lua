@@ -12,7 +12,7 @@ local Port       = 4096          -- must be the same for everyone in the session
 local MaxPlayers = 4             -- players per session (supports up to 8)
 local AutoReconnect = true       -- rejoin a dedicated server automatically if the link drops
 local ChatKey    = "t"           -- keyboard key that opens the typed chat box (mGBA 0.11+)
-local ScriptVersion = "2.2.0"    -- GBA-PK release version
+local ScriptVersion = "2.3.0"    -- GBA-PK release version
 -- ======================================================================
 local IPAddress  = ServerIP      -- internal alias (do not edit)
 -- GBA-PK: ServerIP may be "host:port" (e.g. a Railway TCP-proxy endpoint);
@@ -10462,7 +10462,16 @@ function StartScript()
 			end
 		end
 		if #players < 1 then
-			if Role == "host" or Role == "Host" or Role == "HOST" then
+			if TravelTo then
+				-- region travel: a new Gen-3 ROM just loaded; rejoin the same
+				-- server as ourselves (identity token was kept by travel())
+				local dest = TravelTo
+				TravelTo = nil
+				MenuActive = false
+				HideMenuOverlay()
+				console:log("Travel: rejoining " .. dest .. " ...")
+				join(dest)
+			elseif Role == "host" or Role == "Host" or Role == "HOST" then
 				host()
 			elseif Role == "join" or Role == "Join" or Role == "JOIN" then
 				join()
@@ -16307,6 +16316,28 @@ function netlog(on)
 	end
 end
 
+-- Region travel: leave the dedicated server, keep the reconnect identity, and
+-- rejoin automatically as soon as another Gen-3 ROM is loaded in this mGBA.
+-- The server rooms players by game family, so swapping the ROM *is* the ferry.
+TravelTo = nil     -- "host:port" while a travel is pending
+
+function travel()
+	if not (Connected and ServerIsDedicated) then
+		console:log("Travel needs a dedicated-server session - join one first.")
+		return
+	end
+	TravelTo = IPAddress .. ":" .. Port
+	local tok, nick = ReconnectToken, Nickname
+	disconnect()
+	ReconnectToken = tok          -- keep our identity for the automatic rejoin
+	Nickname = nick
+	console:log("TRAVEL: use File > Load ROM to open the other region's game.")
+	console:log("You'll rejoin " .. TravelTo .. " as yourself automatically.")
+	MenuActive = true
+	MenuScreen = "travel"
+	DrawTravelScreen()
+end
+
 function disconnect()
 	if not (Hosting or Connected) then console:log("Not connected.") return end
 	for _, p in ipairs(players) do
@@ -16891,6 +16922,7 @@ function DrawSessionMenu()
 		options = {
 			"Set name (" .. (Nickname ~= "" and Nickname or "auto") .. ")",
 			"Set skin < " .. currentSkinLabel() .. " >",
+			"Travel (swap region ROM)",
 			"Disconnect",
 			"Close",
 		},
@@ -16899,6 +16931,24 @@ function DrawSessionMenu()
 			"Skin: Left/Right to change. Everyone sees it live.",
 			"Players: " .. #players .. "/" .. MaxPlayers
 				.. ".  " .. string.upper(tostring(ChatKey):sub(1, 1)) .. ": chat   Select: close",
+		},
+	})
+end
+
+function DrawTravelScreen()
+	MenuUI = pickMenuUI()
+	MenuUI:render({
+		title = "===== Region travel =====",
+		subtitle = "Identity saved for " .. tostring(TravelTo) .. ".",
+		options = {
+			"1. Save your game first (in-game menu)",
+			"2. File > Load ROM: the other region",
+			"3. You rejoin the server automatically",
+		},
+		selected = 0,
+		footer = {
+			"Kanto = FR/LG, Hoenn = R/S/E. Each region",
+			"keeps its own save.  B closes this note.",
 		},
 	})
 end
@@ -17140,10 +17190,10 @@ local function handleSessionKeys(pressed)
 		DrawSessionMenu()
 	end
 	if (pressed & KEY_UP) ~= 0 then
-		SessionMenuSel = SessionMenuSel - 1; if SessionMenuSel < 1 then SessionMenuSel = 4 end
+		SessionMenuSel = SessionMenuSel - 1; if SessionMenuSel < 1 then SessionMenuSel = 5 end
 		DrawSessionMenu()
 	elseif (pressed & KEY_DOWN) ~= 0 then
-		SessionMenuSel = SessionMenuSel + 1; if SessionMenuSel > 4 then SessionMenuSel = 1 end
+		SessionMenuSel = SessionMenuSel + 1; if SessionMenuSel > 5 then SessionMenuSel = 1 end
 		DrawSessionMenu()
 	elseif (pressed & KEY_LEFT) ~= 0 then
 		if SessionMenuSel == 2 then cycleSkin(-1) end
@@ -17155,12 +17205,23 @@ local function handleSessionKeys(pressed)
 		elseif SessionMenuSel == 2 then
 			cycleSkin(1)
 		elseif SessionMenuSel == 3 then
+			-- travel() disconnects and re-opens the menu on its own travel screen
+			travel()
+		elseif SessionMenuSel == 4 then
 			MenuActive = false; HideMenuOverlay(); disconnect()
 		else
 			MenuActive = false; HideMenuOverlay()
 		end
 	elseif (pressed & KEY_B) ~= 0 then
 		MenuActive = false; HideMenuOverlay()
+	end
+end
+
+local function handleTravelKeys(pressed)
+	-- informational screen: any confirm/back key dismisses it
+	if (pressed & (KEY_A | KEY_B)) ~= 0 then
+		MenuActive = false
+		HideMenuOverlay()
 	end
 end
 
@@ -17209,6 +17270,8 @@ function MenuLogic()
 		handleSoulKeys(pressed)
 	elseif MenuScreen == "session" then
 		handleSessionKeys(pressed)
+	elseif MenuScreen == "travel" then
+		handleTravelKeys(pressed)
 	else
 		handleConnectKeys(pressed)
 	end
@@ -17239,6 +17302,7 @@ function Help(page)
 		console:log("->chat() --Open the typed chat box (mGBA 0.11+; or press the chat key, default T, in-game)")
 		console:log("->channel(\"name\") --Switch to a named channel on a dedicated server (empty = main)")
 		console:log("->duel() --Queue for a matched battle on a dedicated server")
+		console:log("->travel() --Swap region: leave the server, load the other region's ROM, auto-rejoin as yourself")
 		console:log("->disconnect() --Leave the current session")
 		console:log("->soullocke(on) --Toggle the Soullocke handler (auto soul-link + shared fate). Omit arg to toggle")
 		console:log("->soul_dupes(on) --Toggle the dupes clause (recommended on)")
