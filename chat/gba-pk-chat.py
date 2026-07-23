@@ -67,7 +67,12 @@ def main() -> None:
 
     def send_chat(text: str) -> None:
         me = state["id"] or 0
-        sock.sendall(frame("CHAT", me, 0, "CHAT", 0, payload=padded(text)))
+        # the server re-wraps our chat for other rooms as "NAME (CHAT): text"
+        # within the same 43-char payload; split long lines so nothing is cut
+        step = max(43 - (len(name) + len(" (CHAT): ")), 16)
+        text = text.replace("~", "-")
+        for i in range(0, max(len(text), 1), step):
+            sock.sendall(frame("CHAT", me, 0, "CHAT", 0, payload=padded(text[i:i + step])))
 
     def receiver() -> None:
         buf = b""

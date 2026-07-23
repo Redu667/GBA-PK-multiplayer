@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Discord chat bridge.** New `chat/gba-pk-discord.py` companion connects a server's chat
+  to a Discord channel: `--webhook URL` for one-way game→Discord with zero dependencies,
+  or `--bot TOKEN --discord-channel ID` (needs `discord.py`) for a full two-way bridge.
+  Long Discord messages are split across protocol-size chat lines.
+- Fixed: companion-sent chat lines longer than ~30 characters were tail-truncated for
+  players in other regions (the server's `NAME (CHAT):` wrap shares the 43-char chat
+  payload); both companions now split lines to fit.
+- Docs: README explains the Android situation (no scripting support in any Android GBA
+  emulator, so phones join via chat companions/Discord for now).
+
 ## v2.2.0
 
 Scope release: we surveyed how every notable Pokémon multiplayer project is built

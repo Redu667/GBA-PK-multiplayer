@@ -158,10 +158,13 @@ top for the research behind this.
   modifiers) mean **typed in-window chat and image-quality UI are possible in pure Lua**.
   The two features that once seemed to require a fork don't.
 - **Companion apps:** the server speaks a simple TCP protocol, so *anything* can join it —
-  the keyboard chat companion (`chat/gba-pk-chat.py`, v2.1.0) is the first example. A
-  server-status web page or a Discord chat bridge are the same pattern, and it's the
-  ecosystem-standard shape (Archipelago, mGBA-http, Emerald Rogue's assistant all work
-  this way).
+  the keyboard chat companion (`chat/gba-pk-chat.py`, v2.1.0) and the **Discord bridge**
+  (`chat/gba-pk-discord.py`) are the first two. A server-status web page would be the same
+  pattern, and it's the ecosystem-standard shape (Archipelago, mGBA-http, Emerald Rogue's
+  assistant all work this way). Companions are also the whole Android story for now: no
+  Android GBA emulator exposes mGBA's scripting (RetroArch cores can't load scripts), so
+  phones join the *chat* via Discord/Termux rather than the overworld — until upstream
+  grows script support on Android.
 - **Packaging (the surviving sliver of the old "bundling" idea):** a zip/installer that
   lays out *stock* mGBA + script + font + a preconfigured server list is still fair game —
   that's distribution, not a fork. Anything requiring us to compile a modified emulator

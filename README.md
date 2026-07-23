@@ -144,6 +144,29 @@ It connects to the same server as a chat-only player: what you type shows up in 
 in-game chat feed (as `Name (CHAT): text`), and in-game chat prints in your terminal.
 Python 3 only, no dependencies. It uses one player slot on the server.
 
+**Discord bridge.** Connect your server's chat to a Discord channel with
+`chat/gba-pk-discord.py`, so people on phones (or anywhere) can follow along and talk back:
+
+```sh
+# one-way (game -> Discord), no dependencies: paste a channel webhook URL
+python3 chat/gba-pk-discord.py your.server:4096 --webhook https://discord.com/api/webhooks/...
+
+# two-way (game <-> Discord), needs `pip install discord.py` and a bot token
+python3 chat/gba-pk-discord.py your.server:4096 --bot BOT_TOKEN --discord-channel 123456789012345678
+```
+
+In two-way mode, Discord messages appear in everyone's in-game feed as
+`Discord (CHAT): Name: text`, and all in-game chat (plus join/leave notices) flows to the
+channel. Like the chat companion, it occupies one player slot.
+
+**Playing on Android?** Not yet: no Android GBA emulator exposes mGBA's Lua scripting —
+mGBA exists on Android only as a [RetroArch](https://www.retroarch.com/) core, and cores
+can't load scripts, so the mod has nothing to run in. That's an upstream limitation we
+watch rather than work around (see the no-fork stance in [ROADMAP.md](ROADMAP.md)). What
+works on a phone today: joining the session's **chat** through the Discord bridge above
+(or the chat companion under Termux), and playing your PC's mGBA remotely with a
+streaming app such as Moonlight or Steam Link.
+
 **Your identity persists.** The mod stores your name and server identity in a small
 `GBA-PK.identity` file next to the script, and the server remembers you in
 `GBA-PK-Server.accounts` — so you can restart the emulator, your PC or the server and come
