@@ -11,7 +11,7 @@ local ServerIP   = "127.0.0.1"   -- the host's IP address (only used when joinin
 local Port       = 4096          -- must be the same for everyone in the session
 local MaxPlayers = 4             -- players per session (supports up to 8)
 local AutoReconnect = true       -- rejoin a dedicated server automatically if the link drops
-local ScriptVersion = "1.6.0"    -- GBA-PK release version
+local ScriptVersion = "1.7.0"    -- GBA-PK release version
 -- ======================================================================
 local IPAddress  = ServerIP      -- internal alias (do not edit)
 local ServerType = "c"           -- internal, derived from Role/commands
@@ -10998,7 +10998,7 @@ function ReceiveData(SocketMain)
 							--GBA-PK: the server hands out a reconnect token (ExtraData 39-43);
 							--presenting it on a later JOIN gets us our player id back.
 							local token = string.sub(packet.ExtraData, 39, 43)
-							if token ~= "FFFFF" and #token == 5 then ReconnectToken = token end
+							if token ~= "FFFFF" and #token == 5 and token ~= ReconnectToken then ReconnectToken = token SaveIdentity() end
 							if Reconnecting then
 								Reconnecting = false
 								ReconnectAttempts = 0
@@ -16111,9 +16111,35 @@ function BroadcastNickname()
 	end
 end
 
+--GBA-PK: durable identity. The reconnect token and nickname are saved to a
+--small file next to the script, so restarting mGBA (or your PC) keeps who you
+--are: the server greets you by name and protects your nickname (v1.7.0+).
+function SaveIdentity()
+	local dir = (script and script.dir) or "."
+	local fh = io and io.open and io.open(dir .. "/GBA-PK.identity", "w")
+	if not fh then return end
+	fh:write((ReconnectToken or "") .. "\n" .. (Nickname or "") .. "\n")
+	fh:close()
+end
+
+function LoadIdentity()
+	local dir = (script and script.dir) or "."
+	local fh = io and io.open and io.open(dir .. "/GBA-PK.identity", "r")
+	if not fh then return end
+	local tok = fh:read("*l")
+	local nick = fh:read("*l")
+	fh:close()
+	if tok and #tok == 5 then ReconnectToken = tok end
+	if nick and nick ~= "" and Nickname == "" then
+		Nickname = nick
+		console:log("Welcome back, " .. Nickname .. ".")
+	end
+end
+
 function setname(name)
 	if type(name) ~= "string" then console:log('Usage: setname("YourName")') return end
 	Nickname = utf8_cut(name, 10)
+	SaveIdentity()
 	console:log("Nickname set to " .. Nickname)
 	if Hosting or Connected then BroadcastNickname() end
 end
@@ -16890,7 +16916,7 @@ local function handleNameKeys(pressed)
 		end
 	elseif (pressed & KEY_A) ~= 0 then
 		local nm = string.gsub(nameString(), "%s+$", "")
-		if nm ~= "" then Nickname = utf8_cut(nm, 10) end
+		if nm ~= "" then Nickname = utf8_cut(nm, 10) SaveIdentity() end
 		if Hosting or Connected then
 			-- mid-session rename: tell the other players so your label updates for them
 			BroadcastNickname()
@@ -17063,6 +17089,7 @@ if NativeLua then
 else
 	SocketMain = socket:tcp()
 
+	LoadIdentity()
 	console:log("Started GBA-PK v" .. ScriptVersion .. ". Focus the game and use the D-pad to drive the menu (it drives the menu only, not the game). On mGBA 0.11 the menu is drawn on the game screen; on 0.10.x it shows in the \"GBA-PK\" tab above. Select toggles it. Or type help() for commands.")
 	if not (emu == nil) then
 		StartScript()

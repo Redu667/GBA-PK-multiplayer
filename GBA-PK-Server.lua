@@ -98,6 +98,39 @@ local function joinedCount()
 	return n
 end
 
+-- Persistent identity: token -> nickname, kept on disk so the server remembers
+-- players across restarts. Your name is restored when you join, and a nickname
+-- someone else owns is treated as taken even while they're offline.
+local ACCOUNTS_FILE = "GBA-PK-Server.accounts"
+local accounts = {}       -- token -> nick
+
+local function loadAccounts()
+	local fh = io.open(ACCOUNTS_FILE, "r")
+	if not fh then return end
+	local n = 0
+	for line in fh:lines() do
+		local token, nick = line:match("^(%w%w%w%w%w)\t(.+)$")
+		if token and nick then accounts[token] = nick n = n + 1 end
+	end
+	fh:close()
+	if n > 0 then log("loaded " .. n .. " known player(s) from " .. ACCOUNTS_FILE) end
+end
+
+local function saveAccounts()
+	local fh = io.open(ACCOUNTS_FILE, "w")
+	if not fh then log("warning: could not write " .. ACCOUNTS_FILE) return end
+	for token, nick in pairs(accounts) do fh:write(token .. "\t" .. nick .. "\n") end
+	fh:close()
+end
+
+local function nickOwnedByOther(nick, token)
+	local base = nick:lower()
+	for t, n in pairs(accounts) do
+		if t ~= token and n:lower() == base then return true end
+	end
+	return false
+end
+
 -- Reconnect support: when a joined player drops, their id (and nickname) is
 -- held under their token for RESERVE_SECONDS, so rejoining with that token
 -- restores the same identity.
@@ -208,6 +241,13 @@ local function handleJoin(c, f)
 		-- noticed the old socket die) -> replace the stale connection
 		for _, other in ipairs(clients) do
 			if other.joined and other ~= c and other.token == presented then
+				-- If that connection is visibly alive (heartbeating within 4s), this
+				-- is most likely a SECOND instance sharing the same identity file on
+				-- one PC — give it a fresh identity instead of kicking the first.
+				if (socket.gettime() - other.lastSeen) < 4 then
+					vlog("token in use by a live connection; treating join from " .. c.addr .. " as a new player")
+					break
+				end
 				broadcast(buildFrame("SERV", 0, 0, "DISC", other.id), other)
 				pcall(function() other.sock:close() end)
 				other.joined = false                     -- strip it; removed below
@@ -224,6 +264,12 @@ local function handleJoin(c, f)
 			c.id, c.nick, token, rejoined = r.id, r.nick, presented, true
 			reservations[presented] = nil
 		end
+		-- No live session or reservation, but a known account (e.g. the server
+		-- restarted): keep the presented token as their identity so their name
+		-- comes back. Unknown tokens still get a fresh identity.
+		if not rejoined and not token and accounts[presented] then
+			token = presented
+		end
 	end
 
 	if not rejoined and joinedCount() >= MaxPlayers then
@@ -233,6 +279,7 @@ local function handleJoin(c, f)
 	end
 	c.id     = c.id or freeID()
 	c.token  = token or newToken()
+	c.nick   = c.nick or accounts[c.token]     -- greet returning players by name
 	c.gameid = f:sub(1, 4)
 	c.room   = familyOf(c.gameid)   -- on a rejoin after a ROM swap this lands
 	                                -- them in the new region's room ("travel")
@@ -315,17 +362,27 @@ local function handleFrame(c, f)
 		-- else can tell the two apart (the owner still sees their own name locally).
 		local nick = f:sub(21, 63):gsub("~*$", "")
 		local base = nick:lower()
-		for _, other in ipairs(clients) do
-			if other.joined and other ~= c and other.nick and other.nick:lower() == base then
-				nick = nick:sub(1, 36) .. "(" .. c.id .. ")"
-				local payload = nick .. string.rep("~", 43 - #nick)
-				f = f:sub(1, 20) .. payload .. "U"
-				vlog("nickname collision: player " .. c.id .. " -> " .. nick)
-				break
+		local taken = nickOwnedByOther(nick, c.token)
+		if not taken then
+			for _, other in ipairs(clients) do
+				if other.joined and other ~= c and other.nick and other.nick:lower() == base then
+					taken = true
+					break
+				end
 			end
+		end
+		if taken then
+			nick = nick:sub(1, 36) .. "(" .. c.id .. ")"
+			local payload = nick .. string.rep("~", 43 - #nick)
+			f = f:sub(1, 20) .. payload .. "U"
+			vlog("nickname collision: player " .. c.id .. " -> " .. nick)
 		end
 		c.nick = nick
 		c.nickRaw = f
+		if not taken and accounts[c.token] ~= nick then
+			accounts[c.token] = nick               -- first come, first owned
+			saveAccounts()
+		end
 		broadcast(f, c, c.room)                       -- names resolve within the room
 	else
 		-- Targeted packet (trade/battle/Pokémon data/Soullocke/…): forward raw
@@ -347,6 +404,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Main loop
 -- ---------------------------------------------------------------------------
+loadAccounts()
 local server = assert(socket.bind("*", Port), "could not bind port " .. Port)
 server:settimeout(0)
 log("GBA-PK dedicated server listening on port " .. Port ..

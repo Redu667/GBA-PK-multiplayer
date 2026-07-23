@@ -90,6 +90,11 @@ check(nickB and fpayload(nickB) == "DUDE(3)", "duplicate nickname is deduped to 
 
 print("== Reconnect: replace a stale connection ==")
 B.frames = {}
+-- The server refuses to kick a connection that heartbeated within the last 4s
+-- (that's how two instances sharing one identity file on a PC are told apart
+-- from a genuine reconnect). Let A's connection go silent past that window
+-- first, like a real dropped client would be.
+socket.sleep(4.5)
 local A2 = newClient("BPR1")
 A2.sock:send(frame("BPR1", 0, 0, "JOIN", 0, fid(0) .. string.rep("\0", 33) .. "R" .. tokA))
 pump(A2, 0.6); pump(B, 0.4)
@@ -137,6 +142,7 @@ check(findType(A, "CHAT", function(f) return fpid(f) == 2 end) == nil, "A gets n
 print("== Heartbeat: client PING absorbed; server PINGs on its own ==")
 A.frames = {}
 A.sock:send(frame("BPR1", 2, 0, "PING", 0))
+B.sock:send(frame("BPR1", 3, 0, "PING", 0))   -- keep B alive through the 6s wait (real clients heartbeat)
 pump(A, 0.4)
 check(findType(A, "TBUS") == nil, "client PING does not bounce back as TBUS")
 pump(A, 6.0)

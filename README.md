@@ -116,6 +116,11 @@ a dead server is noticed within seconds. If your connection drops, the mod **rec
 automatically** and the server gives you your player id and name back (it holds them for
 2 minutes) — everyone else just sees "NAME reconnected".
 
+**Your identity persists.** The mod stores your name and server identity in a small
+`GBA-PK.identity` file next to the script, and the server remembers you in
+`GBA-PK-Server.accounts` — so you can restart the emulator, your PC or the server and come
+back as yourself ("Welcome back, NAME"), with your nickname protected even while offline.
+
 ### Seeing other players
 
 - **Skins animate.** Other players' chosen overworld skins walk with a full walk
