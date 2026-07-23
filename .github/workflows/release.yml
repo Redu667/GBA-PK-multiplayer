@@ -45,7 +45,7 @@ jobs:
           STAGE="GBA-PK-v${VERSION}"
           mkdir -p "$STAGE"
           cp GBA-PK.lua \
-             GBA-PK-Server.lua \
+             server/GBA-PK-Server.lua \
              SourceSans3-Regular.otf \
              SourceSans3-Regular.LICENSE.txt \
              README.md \
@@ -80,7 +80,7 @@ jobs:
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             echo "Release v${VERSION} already exists; uploading/overwriting assets."
             gh release upload "v${VERSION}" \
-              "GBA-PK-v${VERSION}.zip" GBA-PK.lua GBA-PK-Server.lua SourceSans3-Regular.otf --clobber
+              "GBA-PK-v${VERSION}.zip" GBA-PK.lua server/GBA-PK-Server.lua SourceSans3-Regular.otf --clobber
           else
             gh release create "v${VERSION}" \
               --title "v${VERSION}" \
@@ -88,6 +88,6 @@ jobs:
               $DRAFT_FLAG \
               "GBA-PK-v${VERSION}.zip" \
               GBA-PK.lua \
-              GBA-PK-Server.lua \
+              server/GBA-PK-Server.lua \
               SourceSans3-Regular.otf
           fi

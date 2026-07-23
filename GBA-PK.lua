@@ -14,6 +14,12 @@ local AutoReconnect = true       -- rejoin a dedicated server automatically if t
 local ScriptVersion = "2.0.0"    -- GBA-PK release version
 -- ======================================================================
 local IPAddress  = ServerIP      -- internal alias (do not edit)
+-- GBA-PK: ServerIP may be "host:port" (e.g. a Railway TCP-proxy endpoint);
+-- split it so the port override sticks.
+do
+	local h, pt = tostring(ServerIP):match("^(.+):(%d+)$")
+	if h then IPAddress = h Port = tonumber(pt) end
+end
 local ServerType = "c"           -- internal, derived from Role/commands
 local Experimental_Features = false --set this to true to enable experimental NPC feature. Currently is only for testing
 
@@ -16251,7 +16257,10 @@ end
 function join(ip)
 	if Hosting or Connected then console:log("Already in a session. Use disconnect() first.") return end
 	if not EnableScript then console:log("Script not enabled (unsupported game?).") return end
-	if type(ip) == "string" and ip ~= "" then IPAddress = ip end
+	if type(ip) == "string" and ip ~= "" then
+		local h, pt = ip:match("^(.+):(%d+)$")
+		if h then IPAddress = h Port = tonumber(pt) else IPAddress = ip end
+	end
 	Role = "join"
 	ServerType = "c"
 	MenuActive = false

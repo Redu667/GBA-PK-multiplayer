@@ -18,6 +18,12 @@ layer of server-side validation.
   malformed trade-stage fields, and — in map-local mode — refuses trade/battle packets aimed
   at players you can't currently see. Deep content validation (legal species/moves/stats)
   requires per-game data tables and stays on the long-term roadmap, stated honestly.
+- **One-click server hosting.** The server now lives in a self-contained
+  [`server/`](server/) folder with a Dockerfile: point a **Railway** service at the repo
+  with Root Directory `server`, enable a TCP proxy on port 4096, and you have a hosted
+  server — full steps in `server/README.md` (Docker/VPS options included). `ServerIP` and
+  `join()` accept `host:port`, so a Railway endpoint like `xyz.proxy.rlwy.net:31702` pastes
+  straight in. Mount a volume at `/data` to keep player accounts across redeploys.
 - Spectating was re-triaged to long term: it needs battle-UI state injection on the client,
   which is deep game work, and matchmaking + chat cover the social need for now.
 

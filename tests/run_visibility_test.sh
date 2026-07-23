@@ -8,7 +8,7 @@ SRV=""
 cleanup() { [ -n "$SRV" ] && kill -9 "$SRV" 2>/dev/null; }
 trap cleanup EXIT INT TERM
 cd "$WORK"
-lua5.4 "$ROOT/GBA-PK-Server.lua" 4096 16 --local=2 > server.log 2>&1 &
+lua5.4 "$ROOT/server/GBA-PK-Server.lua" 4096 16 --local=2 > server.log 2>&1 &
 SRV=$!
 sleep 1.2
 grep -q "listening" server.log || { echo "ERROR: server failed to start"; cat server.log; exit 1; }

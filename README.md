@@ -59,7 +59,8 @@ client and server script.
    - **Join a game** — connect to the host's IP.
    - **Set IP** — type the host's IP with the D-pad (Up/Down change a digit or dot,
      Left/Right move the cursor, **A** confirms, **B** backspaces), then choose **Join**. You
-     can also set `ServerIP` in the config or use `join("their.ip.address")`.
+     can also set `ServerIP` in the config or use `join("their.ip.address")` — both accept
+     `host:port` too (e.g. a Railway TCP-proxy endpoint like `xyz.proxy.rlwy.net:31702`).
    - **Set name** — type a nickname with the D-pad (Up/Down change the letter, Left/Right
      move the cursor, **A** confirms, **B** backspaces).
    - **Set skin** — change how you look to other players. Use **Left/Right** to cycle
@@ -82,18 +83,22 @@ Instead of one player hosting from inside their game, you can run a small **stan
 server** that everyone connects to. Nobody plays "the host", and the session stays up even
 if people come and go — better for bigger or longer-running lobbies.
 
-1. On a machine that stays on (a VPS, spare PC or Raspberry Pi), install Lua + luasocket
-   (Debian/Ubuntu: `sudo apt install lua5.4 lua-socket`) and run:
+1. Easiest: **deploy the [`server/`](server/) folder to Railway** — point a Railway
+   service at this repo with Root Directory `server`, enable a TCP proxy on port 4096,
+   done. Full steps (plus Docker and VPS options) are in **[server/README.md](server/README.md)**.
+
+   Or run it yourself on a machine that stays on (a VPS, spare PC or Raspberry Pi) with
+   Lua + luasocket (Debian/Ubuntu: `sudo apt install lua5.4 lua-socket`):
 
    ```sh
-   lua GBA-PK-Server.lua            # port 4096, up to 8 players
-   lua GBA-PK-Server.lua 4096 16    # custom port / player cap
-   lua GBA-PK-Server.lua -v         # verbose (log every relay)
-   lua GBA-PK-Server.lua 4096 32 --local=7   # big lobby: map-local visibility past 7/room
+   lua server/GBA-PK-Server.lua            # port 4096, up to 8 players
+   lua server/GBA-PK-Server.lua 4096 16    # custom port / player cap
+   lua server/GBA-PK-Server.lua -v         # verbose (log every relay)
+   lua server/GBA-PK-Server.lua 4096 32 --local=7   # big lobby: map-local past 7/room
    ```
 
-   No ROM or emulator is needed on the server. Port-forward the port (TCP, default `4096`)
-   to that machine, exactly as a host would.
+   No ROM or emulator is needed on the server. Self-hosting needs the port (TCP, default
+   `4096`) forwarded/open, exactly as a peer host would.
 2. Each **player** just picks **Set IP** → the server's address, then **Join**. That's it —
    there's no separate "host". The mod detects a dedicated server automatically and won't add
    a phantom host player.
