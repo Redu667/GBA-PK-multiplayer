@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Web chat page — phones just open a URL.** New `server/webchat.py` (Python 3 stdlib
+  only, WebSocket hand-rolled) serves a mobile-friendly chat page bridged into the
+  session, and the server Docker image now runs it alongside the Lua server: on Railway,
+  generate an HTTP domain and that URL is your session's chat, while the TCP proxy keeps
+  carrying the game. `WEBCHAT=0` disables it; container game port is now `GAME_PORT`
+  (`PORT` belongs to the web page, matching Railway's convention).
 - **Discord chat bridge.** New `chat/gba-pk-discord.py` companion connects a server's chat
   to a Discord channel: `--webhook URL` for one-way game→Discord with zero dependencies,
   or `--bot TOKEN --discord-channel ID` (needs `discord.py`) for a full two-way bridge.
