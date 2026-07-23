@@ -11,7 +11,7 @@ local ServerIP   = "127.0.0.1"   -- the host's IP address (only used when joinin
 local Port       = 4096          -- must be the same for everyone in the session
 local MaxPlayers = 4             -- players per session (supports up to 8)
 local AutoReconnect = true       -- rejoin a dedicated server automatically if the link drops
-local ScriptVersion = "1.8.0"    -- GBA-PK release version
+local ScriptVersion = "2.0.0"    -- GBA-PK release version
 -- ======================================================================
 local IPAddress  = ServerIP      -- internal alias (do not edit)
 local ServerType = "c"           -- internal, derived from Role/commands
@@ -143,6 +143,7 @@ ServerIsDedicated = false    -- GBA-PK: true when joined to a standalone GBA-PK-
 ServerLastSeen = 0           -- GBA-PK: os.time() of the last PING/data seen from the dedicated server
 local HeartbeatTick = 0      -- GBA-PK: counts network_send ticks between client PINGs
 ReconnectToken = nil         -- GBA-PK: token the dedicated server issued (proves who we are on rejoin)
+Channel = ""                 -- GBA-PK: named channel within your region room ("" = the main one)
 Reconnecting = false         -- GBA-PK: true while auto-rejoining a dropped dedicated server
 local ReconnectAttempts = 0
 local NextRetryAt = 0
@@ -11010,6 +11011,9 @@ function ReceiveData(SocketMain)
 								ReconnectAttempts = 0
 								console:log("Reconnected to the server as player " .. tostring(packet.RequestBytes) .. ".")
 							end
+							if Channel ~= "" then
+								SendSpecialData(SocketMain, "ROOM", 0, PlayerID, { text = Channel })
+							end
 						end
 						if not ServerIsDedicated then
 							--Add host
@@ -11702,6 +11706,18 @@ function CreateSpecialPacket(Socket, RequestTemp, PacketTemp, DataToUse, Optiona
 
 	elseif RequestTemp == "PING" then
 		--Liveness heartbeat; no payload
+		Packet = PacketGameID .. PacketNickname .. PacketPlayerID .. PacketSendToID .. RequestTemp .. string.rep("F", 43) .. "U"
+		Socket:send(Packet)
+
+	elseif RequestTemp == "ROOM" then
+		--Switch named channel on a dedicated server. Payload = channel name ("" = main).
+		local name = (Optional and Optional.text) or ""
+		local payload = name .. string.rep("~", 43 - #name)
+		Packet = PacketGameID .. PacketNickname .. PacketPlayerID .. PacketSendToID .. RequestTemp .. payload .. "U"
+		Socket:send(Packet)
+
+	elseif RequestTemp == "DUEL" then
+		--Join/leave the battle matchmaking queue; no payload
 		Packet = PacketGameID .. PacketNickname .. PacketPlayerID .. PacketSendToID .. RequestTemp .. string.rep("F", 43) .. "U"
 		Socket:send(Packet)
 		
@@ -16597,6 +16613,28 @@ function say(text)
 	end
 end
 
+-- Switch to a named channel on a dedicated server (a separate lobby within your
+-- region). channel("") or channel() returns to the main one.
+function channel(name)
+	name = tostring(name or ""):lower():gsub("[^%w]", ""):sub(1, 10)
+	if not (Connected and ServerIsDedicated) then
+		console:log("Channels need a dedicated server - join one first.")
+		return
+	end
+	Channel = name
+	SendSpecialData(SocketMain, "ROOM", 0, PlayerID, { text = name })
+end
+
+-- Join (or leave) the server's battle matchmaking queue. When another player in
+-- your room queues too, the server pairs you up and tells you both in chat.
+function duel()
+	if not (Connected and ServerIsDedicated) then
+		console:log("Matchmaking needs a dedicated server - join one first.")
+		return
+	end
+	SendSpecialData(SocketMain, "DUEL", 0, PlayerID)
+end
+
 -- ===================== GBA-PK connect / name menu ====================
 -- Key bits returned by emu:getKeys()
 local KEY_A, KEY_B     = 0x1, 0x2
@@ -17032,6 +17070,8 @@ function Help(page)
 		console:log("->status() --Show connection status")
 		console:log("->netlog(on) --Toggle verbose network logging to diagnose a failed join")
 		console:log("->say(\"msg\") --Send a chat message to everyone in the session")
+		console:log("->channel(\"name\") --Switch to a named channel on a dedicated server (empty = main)")
+		console:log("->duel() --Queue for a matched battle on a dedicated server")
 		console:log("->disconnect() --Leave the current session")
 		console:log("->soullocke(on) --Toggle the Soullocke handler (auto soul-link + shared fate). Omit arg to toggle")
 		console:log("->soul_dupes(on) --Toggle the dupes clause (recommended on)")

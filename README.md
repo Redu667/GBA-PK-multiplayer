@@ -108,7 +108,9 @@ you're now playing.
 **Big lobbies.** Above `--local=N` players in a room (default 7), the server switches to
 **map-local visibility**: you only see and sync with players on your current map (up to 8 at
 once — the renderer's limit), and walking onto a map introduces whoever is there. Small
-lobbies keep full visibility automatically.
+lobbies keep full visibility automatically. Use `channel("name")` to split off a private
+lobby within your region, and `duel()` to queue for matched battles — the server pairs
+queued players and announces the match in chat.
 
 Peer hosting with `host()` still works exactly as before; the dedicated server is just an
 alternative. See **[ROADMAP.md](ROADMAP.md)** for where multiplayer is headed.
@@ -170,6 +172,8 @@ full list):
 | `who()` | List everyone in your session |
 | `status()` | Show connection status |
 | `say("msg")` | Send a chat message to everyone in the session |
+| `channel("name")` | Switch to a named channel on a dedicated server (empty = main) |
+| `duel()` | Queue for a matched battle on a dedicated server |
 | `disconnect()` | Leave the current session |
 | `soullocke(on)` | Turn the Soullocke handler on/off (omit the arg to toggle) |
 | `soul_dupes(on)` | Toggle the dupes clause |

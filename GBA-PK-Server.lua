@@ -62,6 +62,8 @@ local function frameType(f)     return f:sub(17, 20) end
 local function frameMap(f)      return (f:byte(30) or 0) | ((f:byte(31) or 0) << 8) end
 local function framePrevMap(f)  return (f:byte(32) or 0) | ((f:byte(33) or 0) << 8) end
 local function frameSendTo(f)   return (tonumber(f:sub(13, 16)) or 1000) - 1000 end
+local function framePid(f)      return (tonumber(f:sub(9, 12)) or -1000) - 1000 end
+local function framePayload(f)  return (f:sub(21, 63):gsub("~*$", "")) end
 local function frameValid(f)    return #f == FRAME and f:sub(64, 64) == "U" end
 
 -- Build a position-format frame with zeroed position data.
@@ -162,6 +164,31 @@ local function updateVisibility(c)
 			setVisible(c, o, should)
 		end
 	end
+end
+
+-- A server chat line to ONE client (queue updates, match notices, ...).
+local function noticeTo(c, text)
+	text = text:gsub("[%c~]", " ")
+	if #text > 43 then text = text:sub(1, 43) end
+	sendTo(c, "SERV" .. "FFFF" .. fid(0) .. fid(c.id) .. "CHAT" .. text .. string.rep("~", 43 - #text) .. "U")
+end
+
+-- Named channels: players can split a region room into separate lobbies
+-- ("Kanto#speedrun"). Moving rooms drops you from your old room's views and
+-- introduces you in the new one.
+local duelQueue = {}   -- room -> waiting client
+
+local function moveRoom(c, newRoom)
+	if c.room == newRoom then return end
+	if duelQueue[c.room] == c then duelQueue[c.room] = nil end
+	for _, o in ipairs(clients) do
+		if o.joined and o ~= c and o.room ~= newRoom then
+			setVisible(o, c, false)
+			setVisible(c, o, false)
+		end
+	end
+	c.room = newRoom
+	updateVisibility(c)
 end
 
 local function joinedCount()
@@ -269,6 +296,8 @@ local function notice(text)
 end
 
 local function dropClient(c, reason)
+	if c.dropped then return end
+	c.dropped = true
 	if c.joined then
 		log("player " .. c.id .. " (" .. c.addr .. ") left: " .. reason ..
 			"  [" .. (joinedCount() - 1) .. "/" .. MaxPlayers .. " online]")
@@ -284,6 +313,7 @@ local function dropClient(c, reason)
 	for _, o in ipairs(clients) do
 		if o.vis then o.vis[c.id] = nil end
 	end
+	if duelQueue[c.room] == c then duelQueue[c.room] = nil end
 	if c.joined then
 		-- hold their identity so a reconnect within the window restores it
 		if c.token then
@@ -353,8 +383,9 @@ local function handleJoin(c, f)
 	c.token  = token or newToken()
 	c.nick   = c.nick or accounts[c.token]     -- greet returning players by name
 	c.gameid = f:sub(1, 4)
-	c.room   = familyOf(c.gameid)   -- on a rejoin after a ROM swap this lands
+	c.baseRoom = familyOf(c.gameid) -- on a rejoin after a ROM swap this lands
 	                                -- them in the new region's room ("travel")
+	c.room   = c.baseRoom
 	c.map    = frameMap(f)
 	c.vis    = {}
 	c.joined = true
@@ -401,10 +432,48 @@ local function handleFrame(c, f)
 		return
 	end
 
+	-- Validation: after joining, every frame a client sends must carry its own
+	-- player id — a frame claiming to be someone else is a spoof and is dropped.
+	-- Repeated violations get the connection kicked.
+	if c.joined and t ~= "JOIN" and framePid(f) ~= c.id then
+		c.badFrames = (c.badFrames or 0) + 1
+		vlog("spoofed frame from player " .. c.id .. " (claimed " .. framePid(f) .. "), dropped")
+		if c.badFrames > 20 then dropClient(c, "repeated invalid frames") end
+		return
+	end
+
 	if t == "JOIN" then
 		handleJoin(c, f)
 	elseif not c.joined then
 		vlog("frame " .. t .. " from unjoined " .. c.addr .. " ignored")
+	elseif t == "ROOM" then
+		-- switch (or leave) a named channel within your region
+		local ch = framePayload(f):lower():gsub("[^%w]", ""):sub(1, 10)
+		local newRoom = (ch == "") and c.baseRoom or (c.baseRoom .. "#" .. ch)
+		moveRoom(c, newRoom)
+		noticeTo(c, (ch == "") and ("Back in " .. c.baseRoom .. ".") or ("Moved to channel " .. c.room .. "."))
+		log("player " .. c.id .. " moved to room " .. c.room)
+	elseif t == "DUEL" then
+		-- battle matchmaking: first-come pairing within your room
+		local q = duelQueue[c.room]
+		if q == c then
+			duelQueue[c.room] = nil
+			noticeTo(c, "Left the duel queue.")
+		elseif q and q.joined then
+			duelQueue[c.room] = nil
+			local qn = q.nick or ("Player " .. q.id)
+			local cn = c.nick or ("Player " .. c.id)
+			noticeTo(c, "Duel matched: " .. qn .. "! Find them and battle.")
+			noticeTo(q, "Duel matched: " .. cn .. "! Find them and battle.")
+			log("duel matched: " .. c.id .. " vs " .. q.id .. " in " .. c.room)
+		else
+			duelQueue[c.room] = c
+			noticeTo(c, "Queued for a duel - waiting for a rival.")
+		end
+	elseif t == "TRAD" and framePayload(f) ~= "" and not tonumber(f:sub(21, 24)) then
+		-- malformed trade stage fields: drop rather than desync the partner
+		c.badFrames = (c.badFrames or 0) + 1
+		vlog("malformed TRAD from player " .. c.id .. ", dropped")
 	elseif t == "PING" then
 		-- liveness only; lastSeen is already refreshed above
 	elseif t == "CHAT" then
@@ -468,6 +537,10 @@ local function handleFrame(c, f)
 		-- can't work) — answer TBUS ("too busy") so the attempt aborts cleanly.
 		local target = findByID(frameSendTo(f))
 		if target and target.room ~= c.room then target = nil end
+		-- in map-local mode you can only interact with someone you can see
+		if target and roomCount(c.room) > LocalThreshold and not (target.vis and target.vis[c.id]) then
+			target = nil
+		end
 		if target then
 			sendTo(target, f)
 			vlog("relay " .. t .. " " .. c.id .. " -> " .. target.id)

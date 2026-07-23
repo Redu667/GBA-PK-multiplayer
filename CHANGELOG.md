@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.0.0
+
+The mid-term roadmap tier, complete. One dedicated server is now a small multiplayer
+platform: regions, channels, identity, chat, matchmaking, reconnects, scale, and a first
+layer of server-side validation.
+
+- **Named channels.** `channel("name")` splits your region room into a separate lobby
+  (`Kanto#speedrun`) — its own visibility and duels, while chat still crosses everything.
+  `channel("")` returns to the main room, and your channel is rejoined automatically after a
+  reconnect.
+- **Battle matchmaking.** `duel()` queues you; when another player in your room queues, the
+  server pairs you first-come-first-served and tells you both in chat ("Duel matched:
+  NAME!"). Leave the queue by running `duel()` again.
+- **Server-side validation (anti-cheat foundation).** The server now drops any frame that
+  claims another player's id (spoofing) and kicks connections that keep doing it, rejects
+  malformed trade-stage fields, and — in map-local mode — refuses trade/battle packets aimed
+  at players you can't currently see. Deep content validation (legal species/moves/stats)
+  requires per-game data tables and stays on the long-term roadmap, stated honestly.
+- Spectating was re-triaged to long term: it needs battle-UI state injection on the client,
+  which is deep game work, and matchmaking + chat cover the social need for now.
+
 ## v1.8.0
 
 - **Map-local visibility — the server can now scale past 8 players.** Small lobbies behave

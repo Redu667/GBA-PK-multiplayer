@@ -4,7 +4,7 @@ Where multiplayer is today and where it's heading. [PokeMMO](https://pokemmo.com
 the reference point for the multiplayer feature set — not to clone it, but as a concrete
 target for what "good" looks like.
 
-## Where we are (v1.8.0)
+## Where we are (v2.0.0)
 
 - Real-time shared overworld: see other players walk, up to 8.
 - Player-vs-player **trade** and **battle** over emulated link cable.
@@ -45,8 +45,9 @@ Roughly in dependency order. Nothing here is committed; it's a direction.
 - [x] **Region rooms** *(v1.6.0)* — the server scopes gameplay to game-family rooms (Kanto =
       FR/LG, Hoenn = R/S/E), enforcing family matchmaking server-side; chat and notices cross
       rooms. The foundation of the multi-region world below.
-- [ ] **Named rooms** — multiple independent sessions per family on one server (e.g. two
-      separate Kanto lobbies), joinable by name.
+- [x] **Named channels** *(v2.0.0)* — `channel("name")` splits a region room into separate
+      lobbies (`Kanto#speedrun`); `channel("")` returns to the main one. The channel is
+      rejoined automatically after a reconnect.
 
 ### The multi-region world (multiple ROMs, PokeMMO-style)
 
@@ -83,10 +84,17 @@ belongs to the far end of the roadmap.
       transition grace so border crossings don't flicker), removing them again when they part
       ways, capped at 8 visible per client (the renderer's slot limit). One server can now
       hold far more players than one screen.
-- [ ] **Spectating** trades/battles; **matchmaking** queues for battles.
-- [ ] **Trade/battle validation** on the server (prevent malformed or cheated packets).
+- [x] **Battle matchmaking** *(v2.0.0)* — `duel()` queues you; when another player in your
+      room queues, the server pairs you and tells you both in chat.
+- [x] **Packet validation (foundation)** *(v2.0.0)* — the server drops frames that claim
+      another player's id (spoofing) and kicks repeat offenders, rejects malformed trade
+      fields, and in map-local mode refuses interactions with players you can't see. Deep
+      *content* validation (legal species/moves/stats) needs per-game data tables — moved to
+      long term with the rest of anti-cheat.
 
 ### Long term — the ambitious PokeMMO-style bits
+- [ ] **Spectating** trades/battles — needs battle-UI state injection on the client, which
+      is deep game work; deferred from mid term.
 - [ ] **Shared economy / GTS-style trading** brokered by the server.
 - [ ] **Server-authoritative anti-cheat** (the client can't be trusted for competitive play).
 - [ ] **Cross-map "overworld hub"**, events, seasonal content.
