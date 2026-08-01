@@ -207,6 +207,29 @@ check(disc and freqbytes(disc) == 3, "A is told B (player 3) left via DISC")
 local leaveNote = findType(A, "CHAT", function(f) return fpid(f) == 0 end)
 check(leaveNote and fpayload(leaveNote):find("left") ~= nil, "A receives a leave notice: " .. tostring(leaveNote and fpayload(leaveNote)))
 
+print("== Survives connections that never join (scanners, health checks) ==")
+-- Regression: dropping an unjoined client used to index a view table with a nil
+-- player id ("table index is nil") and kill the whole server process.
+for _ = 1, 3 do
+  local probe = assert(socket.connect("127.0.0.1", 4096))
+  probe:close()                       -- connect and vanish, no JOIN
+end
+socket.sleep(0.5)
+local probe2 = assert(socket.connect("127.0.0.1", 4096))
+probe2:send("garbage that is not a frame")   -- partial junk, then drop
+probe2:close()
+socket.sleep(0.5)
+-- the server must still be alive and accepting real players
+local L = { sock = socket.connect("127.0.0.1", 4096), buf = "", frames = {} }
+check(L.sock ~= nil, "server still accepts connections after unjoined drops")
+if L.sock then
+  L.sock:settimeout(0); L.sock:setoption("tcp-nodelay", true)
+  L.sock:send(frame("BPR1", 0, 0, "JOIN", 0))
+  pump(L, 0.6)
+  check(findType(L, "STRT") ~= nil, "a real player can still join afterwards")
+  L.sock:close()
+end
+
 A.sock:close()
 print(string.format("\n== RESULT: %d passed, %d failed ==", pass, fail))
 os.exit(fail == 0 and 0 or 1)

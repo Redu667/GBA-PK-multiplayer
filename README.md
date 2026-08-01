@@ -150,15 +150,18 @@ It connects to the same server as a chat-only player: what you type shows up in 
 in-game chat feed (as `Name (CHAT): text`), and in-game chat prints in your terminal.
 Python 3 only, no dependencies. It uses one player slot on the server.
 
-**Discord bridge.** Connect your server's chat to a Discord channel with
-`chat/gba-pk-discord.py`, so people on phones (or anywhere) can follow along and talk back:
+**Discord bridge.** Connect your server's chat to a Discord channel so people can follow
+along and talk back from anywhere. If you host with the bundled Dockerfile (Railway etc.)
+you don't run anything yourself — set `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL` on the
+service and the same container bridges it; full walkthrough in
+[server/README.md](server/README.md). To run it by hand next to any server:
 
 ```sh
 # one-way (game -> Discord), no dependencies: paste a channel webhook URL
-python3 chat/gba-pk-discord.py your.server:4096 --webhook https://discord.com/api/webhooks/...
+python3 server/gba-pk-discord.py your.server:4096 --webhook https://discord.com/api/webhooks/...
 
 # two-way (game <-> Discord), needs `pip install discord.py` and a bot token
-python3 chat/gba-pk-discord.py your.server:4096 --bot BOT_TOKEN --discord-channel 123456789012345678
+python3 server/gba-pk-discord.py your.server:4096 --bot BOT_TOKEN --discord-channel 123456789012345678
 ```
 
 In two-way mode, Discord messages appear in everyone's in-game feed as

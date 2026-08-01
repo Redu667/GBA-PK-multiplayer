@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-sys.path.insert(0, "chat")
+sys.path.insert(0, "server")
 import importlib
 bridge_mod = importlib.import_module("gba-pk-discord")
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed a server crash that any stray connection could trigger.** A TCP connection that
+  closed before joining (a port scanner, a health check, `curl host:4096`, a client dying
+  mid-connect) made the server index a view table with a nil player id — `table index is
+  nil` — and the **whole process died**, dropping every player. Public servers were
+  exposed to this from anyone on the internet. Dropping an unjoined connection is now
+  handled correctly, and each client's turn in the main loop runs isolated: an unexpected
+  error drops that one connection (logged with its traceback) instead of the world.
+- **Discord bridge runs inside the server container.** Set `DISCORD_BOT_TOKEN` +
+  `DISCORD_CHANNEL` (two-way) or `DISCORD_WEBHOOK` (one-way) on your Railway service and
+  the same container that runs the game server bridges chat to Discord — no second
+  service, no extra hosting. `DISCORD_NAME` renames it in game chat. Setup walkthrough in
+  `server/README.md`; the bridge moved to `server/gba-pk-discord.py` to be part of the
+  deployable folder.
+- The Discord bridge now reconnects on its own instead of exiting: it can start before
+  the game server is listening (as it does in the container) and survives the server
+  restarting under it.
+- New container-startup test suite runs the Dockerfile's real `CMD` (no Docker needed) to
+  cover process boot order and the `DISCORD_*`/`WEBCHAT` wiring — this is what caught the
+  crash above.
+
 ## v2.3.0
 
 The "easiest way in yet" release: one-click play packages, region travel from the menu,

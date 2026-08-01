@@ -310,8 +310,13 @@ local function dropClient(c, reason)
 	for i, v in ipairs(clients) do
 		if v == c then table.remove(clients, i) break end
 	end
-	for _, o in ipairs(clients) do
-		if o.vis then o.vis[c.id] = nil end
+	-- A connection that never joined has no id (and can't be in anyone's view);
+	-- indexing with a nil id would raise "table index is nil" and kill the loop.
+	-- Port scanners and health checks reach this path on a public server.
+	if c.id then
+		for _, o in ipairs(clients) do
+			if o.vis then o.vis[c.id] = nil end
+		end
 	end
 	if duelQueue[c.room] == c then duelQueue[c.room] = nil end
 	if c.joined then
@@ -566,6 +571,37 @@ end
 -- ---------------------------------------------------------------------------
 -- Main loop
 -- ---------------------------------------------------------------------------
+
+-- One client's turn: drain its socket into frames, then apply the timeouts and
+-- heartbeat. Split out of the loop so it can run under pcall (see below).
+local function serviceClient(c, now)
+	local data, err, partial = c.sock:receive(65536)
+	local chunk = data or partial
+	if chunk and #chunk > 0 then
+		c.buf = c.buf .. chunk
+		while #c.buf >= FRAME do
+			local f = c.buf:sub(1, FRAME)
+			c.buf = c.buf:sub(FRAME + 1)
+			handleFrame(c, f)
+		end
+	end
+	if err == "closed" then
+		dropClient(c, "connection closed")
+	elseif not c.joined and (now - c.born) > JOIN_GRACE then
+		dropClient(c, "never joined")
+	elseif c.joined and joinedCount() >= 2 and (now - c.lastSeen) > IDLE_TIMEOUT then
+		-- clients only send traffic when they have peers, so only enforce
+		-- liveness when peers exist (a lone player idles silently by design;
+		-- v1.4.0+ clients also heartbeat with PING, which refreshes lastSeen)
+		dropClient(c, "timed out")
+	elseif c.joined and (now - (c.lastPing or 0)) > PING_INTERVAL then
+		-- heartbeat so clients can tell the server is alive even when idle.
+		-- Addressed to the recipient so pre-1.4.0 clients ignore it silently.
+		c.lastPing = now
+		sendTo(c, buildFrame(c.gameid, 0, c.id, "PING", c.id))
+	end
+end
+
 loadAccounts()
 local server = assert(socket.bind("*", Port), "could not bind port " .. Port)
 server:settimeout(0)
@@ -590,30 +626,20 @@ while true do
 	local now = socket.gettime()
 	for i = #clients, 1, -1 do
 		local c = clients[i]
-		local data, err, partial = c.sock:receive(65536)
-		local chunk = data or partial
-		if chunk and #chunk > 0 then
-			c.buf = c.buf .. chunk
-			while #c.buf >= FRAME do
-				local f = c.buf:sub(1, FRAME)
-				c.buf = c.buf:sub(FRAME + 1)
-				handleFrame(c, f)
+		-- One client must never be able to take the server down for everyone, so
+		-- its whole turn runs under pcall: an unexpected error drops that client
+		-- (loudly — the traceback is logged) and the world keeps running.
+		local ok, perr = pcall(serviceClient, c, now)
+		if not ok then
+			log("internal error serving " .. tostring(c.addr) .. ": " .. tostring(perr))
+			if not pcall(dropClient, c, "internal error") then
+				-- even the drop failed: evict by hand so the loop can't wedge
+				c.dropped = true
+				pcall(function() c.sock:close() end)
+				for j, v in ipairs(clients) do
+					if v == c then table.remove(clients, j) break end
+				end
 			end
-		end
-		if err == "closed" then
-			dropClient(c, "connection closed")
-		elseif not c.joined and (now - c.born) > JOIN_GRACE then
-			dropClient(c, "never joined")
-		elseif c.joined and joinedCount() >= 2 and (now - c.lastSeen) > IDLE_TIMEOUT then
-			-- clients only send traffic when they have peers, so only enforce
-			-- liveness when peers exist (a lone player idles silently by design;
-			-- v1.4.0+ clients also heartbeat with PING, which refreshes lastSeen)
-			dropClient(c, "timed out")
-		elseif c.joined and (now - (c.lastPing or 0)) > PING_INTERVAL then
-			-- heartbeat so clients can tell the server is alive even when idle.
-			-- Addressed to the recipient so pre-1.4.0 clients ignore it silently.
-			c.lastPing = now
-			sendTo(c, buildFrame(c.gameid, 0, c.id, "PING", c.id))
 		end
 	end
 
