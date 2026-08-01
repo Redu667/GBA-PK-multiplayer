@@ -155,7 +155,7 @@ top for the research behind this.
   The two features that once seemed to require a fork don't.
 - **Companion apps:** the server speaks a simple TCP protocol, so *anything* can join it —
   the keyboard chat companion (`chat/gba-pk-chat.py`, v2.1.0) and the **Discord bridge**
-  (`chat/gba-pk-discord.py`) are the first two. A server-status web page would be the same
+  (`server/gba-pk-discord.py`) are the first two. A server-status web page would be the same
   pattern, and it's the ecosystem-standard shape (Archipelago, mGBA-http, Emerald Rogue's
   assistant all work this way). Companions are also the whole Android story for now: no
   Android GBA emulator exposes mGBA's scripting (RetroArch cores can't load scripts), so

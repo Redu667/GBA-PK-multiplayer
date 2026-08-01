@@ -61,7 +61,8 @@ jobs:
              ANDROID.md \
              "$STAGE"/
           cp server/GBA-PK-Server.lua server/webchat.py server/Dockerfile server/README.md "$STAGE/server/"
-          cp chat/gba-pk-chat.py chat/gba-pk-discord.py "$STAGE/chat/"
+          cp chat/gba-pk-chat.py "$STAGE/chat/"
+          cp server/gba-pk-discord.py "$STAGE/server/"
           zip -r "GBA-PK-v${VERSION}.zip" "$STAGE"
           ls -la "GBA-PK-v${VERSION}.zip"
 

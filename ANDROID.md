@@ -56,7 +56,7 @@ No emulator at all, still in the conversation:
 
 - **Web chat page** — if the server host enabled it, open the server's HTTP URL in any
   browser, pick a name, done (see [server/README.md](server/README.md)).
-- **Discord bridge** — `chat/gba-pk-discord.py` connects the session's chat to a Discord
+- **Discord bridge** — `server/gba-pk-discord.py` connects the session's chat to a Discord
   channel; phones already have Discord.
 - **Keyboard companion in Termux** — `chat/gba-pk-chat.py` is stdlib Python and runs fine
   in plain Termux.

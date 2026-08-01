@@ -32,14 +32,55 @@ that split drives all the hosting notes below.
    it on any phone or browser, pick a name, and you're in the session's chat. Android
    players hang out here (no Android emulator can run the mod itself — see the root
    README). Set `WEBCHAT=0` to turn the page off.
-7. *(Optional but recommended)* Add a **Volume** mounted at `/data` so player accounts
+7. *(Optional, Discord)* Add the variables in **Discord bridge** below and the same
+   container bridges your session's chat to a Discord channel — no second service.
+8. *(Optional but recommended)* Add a **Volume** mounted at `/data` so player accounts
    (`GBA-PK-Server.accounts` — names + reconnect identities) survive redeploys.
-8. *(Optional)* **Variables:** `MAX_PLAYERS` (default 8), `SERVER_FLAGS` (e.g.
+9. *(Optional)* **Variables:** `MAX_PLAYERS` (default 8), `SERVER_FLAGS` (e.g.
    `--local=7 -v` for map-local visibility + verbose logs), `GAME_PORT` (default 4096;
    keep it matching the TCP proxy target). `PORT` belongs to the web chat — Railway sets
    it automatically for the HTTP domain.
 
 Keep it at **one replica** — the server is stateful (one lobby world per process).
+
+## Discord bridge
+
+The container can bridge your session's chat to a Discord channel. It runs **inside the
+same service** as the game server (they talk over localhost), so there is nothing extra
+to deploy — just set variables and redeploy.
+
+**Two-way (recommended)** — people in Discord can talk to players in game:
+
+1. [discord.com/developers](https://discord.com/developers/applications) → **New
+   Application** → **Bot** → **Reset Token**, copy it.
+2. On that same Bot page, enable **MESSAGE CONTENT INTENT** (under Privileged Gateway
+   Intents). Without it the bot sees empty messages and nothing bridges.
+3. **OAuth2 → URL Generator** → scope `bot`, permissions **Send Messages** and **Read
+   Message History** → open the generated URL and invite the bot to your Discord server.
+4. In Discord, turn on **Settings → Advanced → Developer Mode**, then right-click your
+   channel → **Copy Channel ID**.
+5. On the Railway service, add variables:
+
+   | Variable | Value |
+   |---|---|
+   | `DISCORD_BOT_TOKEN` | the bot token from step 1 |
+   | `DISCORD_CHANNEL` | the channel id from step 4 |
+   | `DISCORD_NAME` | *(optional)* the bridge's name in game chat (default `Discord`) |
+
+**One-way (game → Discord only)**, if you'd rather not run a bot: create a webhook in
+**channel settings → Integrations → Webhooks**, and set `DISCORD_WEBHOOK` to its URL
+instead. (If both are set, the bot wins.)
+
+Redeploy and watch the logs for `connected to GBA-PK server as player N`. Discord
+messages then appear in game as `Discord (CHAT): Name: text`, and in-game chat plus
+join/leave notices flow to the channel.
+
+Two notes:
+
+- **Each bridge uses a player slot.** Web chat + Discord = 2 of your `MAX_PLAYERS`, so
+  raise it if that squeezes real players.
+- Keep the bot token in Railway's variables, never in the repo — anyone with it controls
+  your bot.
 
 ## Any Docker host / VPS
 

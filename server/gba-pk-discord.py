@@ -19,6 +19,10 @@ Make a webhook in Discord: channel settings -> Integrations -> Webhooks.
 For a bot: https://discord.com/developers -> create app -> bot -> enable the
 MESSAGE CONTENT intent -> invite it to your server with Send Messages.
 
+You do not have to run this yourself if you host with the bundled Dockerfile:
+set DISCORD_BOT_TOKEN + DISCORD_CHANNEL (or DISCORD_WEBHOOK) on the service and
+the container starts the bridge alongside the game server. See server/README.md.
+
 Notes: the bridge occupies one player slot on the GBA-PK server and heartbeats
 like any client. Discord messages longer than the protocol's 43-char chat line
 are split across several lines.
@@ -65,21 +69,25 @@ def pid_of(f: bytes) -> int:
 
 
 class Bridge:
-    """The GBA-PK side: join, heartbeat, receive chat, send chat."""
+    """The GBA-PK side: join, heartbeat, receive chat, send chat.
+
+    Keeps (re)connecting on its own, so it can be started before the game
+    server is listening (e.g. both in one container) and survives the server
+    restarting under it.
+    """
 
     def __init__(self, host: str, port: int, name: str):
+        self.host, self.port = host, port
         self.name = name[:10]
-        self.sock = socket.create_connection((host, port), timeout=10)
-        self.sock.settimeout(None)
+        self.sock = None
         self.id = None
         self.nicks = {}
         self.alive = True
         self.on_chat = lambda line: None      # called with "Name: text" / server line
-        self.sock.sendall(frame("CHAT", 0, 0, "JOIN", 0))
-        threading.Thread(target=self._receiver, daemon=True).start()
+        threading.Thread(target=self._connect_loop, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()
 
-    def wait_ready(self, seconds: float = 5.0) -> bool:
+    def wait_ready(self, seconds: float = 30.0) -> bool:
         deadline = time.time() + seconds
         while time.time() < deadline and self.alive:
             if self.id is not None:
@@ -88,32 +96,57 @@ class Bridge:
         return self.id is not None
 
     def send_chat(self, text: str) -> None:
-        if self.id is None:
+        sock, me = self.sock, self.id
+        if sock is None or me is None:
             return
         text = "".join(c if 32 <= ord(c) < 127 else " " for c in text).replace("~", "-")
         # the server re-wraps cross-room chat as "NAME (CHAT): text" inside the
         # same 43-char payload, so leave room for that prefix or the tail is cut
         step = max(CHAT_MAX - (len(self.name) + len(" (CHAT): ")), 16)
-        for i in range(0, max(len(text), 1), step):
-            self.sock.sendall(frame("CHAT", self.id, 0, "CHAT", 0,
-                                    payload=padded(text[i:i + step])))
+        try:
+            for i in range(0, max(len(text), 1), step):
+                sock.sendall(frame("CHAT", me, 0, "CHAT", 0,
+                                   payload=padded(text[i:i + step])))
+        except OSError:
+            pass
 
-    def _receiver(self) -> None:
-        buf = b""
+    def _connect_loop(self) -> None:
+        first = True
         while self.alive:
             try:
-                chunk = self.sock.recv(65536)
+                sock = socket.create_connection((self.host, self.port), timeout=10)
+            except OSError as e:
+                if first:
+                    print(f"* waiting for the GBA-PK server at {self.host}:{self.port} ({e})")
+                    first = False
+                time.sleep(3)
+                continue
+            first = True
+            sock.settimeout(None)
+            try:
+                sock.sendall(frame("CHAT", 0, 0, "JOIN", 0))
+                self.sock = sock
+                self._receive(sock)
             except OSError:
-                break
+                pass
+            self.sock, self.id = None, None
+            if self.alive:
+                print("* lost the GBA-PK server, reconnecting...")
+                time.sleep(3)
+
+    def _receive(self, sock: socket.socket) -> None:
+        buf = b""
+        while self.alive:
+            chunk = sock.recv(65536)
             if not chunk:
-                break
+                return
             buf += chunk
             while len(buf) >= FRAME:
                 f, buf = buf[:FRAME], buf[FRAME:]
                 t = f[16:20]
                 if t == b"STRT":
                     self.id = int(f[20:24]) - 1000
-                    self.sock.sendall(frame("CHAT", self.id, 0, "NICK", 0, payload=padded(self.name)))
+                    sock.sendall(frame("CHAT", self.id, 0, "NICK", 0, payload=padded(self.name)))
                     print(f"* connected to GBA-PK server as player {self.id}")
                 elif t == b"CHAT":
                     pid = pid_of(f)
@@ -125,19 +158,18 @@ class Bridge:
                 elif t == b"NICK":
                     self.nicks[pid_of(f)] = payload_of(f)
                 elif t == b"RFSE":
-                    print("* server refused the connection (full?)")
-                    self.alive = False
-        self.alive = False
-        print("* disconnected from GBA-PK server")
+                    print("* server refused the connection (full? raise MAX_PLAYERS)")
+                    return
 
     def _heartbeat(self) -> None:
         while self.alive:
             time.sleep(4)
-            if self.id is not None:
+            sock, me = self.sock, self.id
+            if sock is not None and me is not None:
                 try:
-                    self.sock.sendall(frame("CHAT", self.id, 0, "PING", 0))
+                    sock.sendall(frame("CHAT", me, 0, "PING", 0))
                 except OSError:
-                    break
+                    pass
 
 
 def run_webhook(bridge: Bridge, url: str) -> None:
@@ -225,7 +257,9 @@ def main() -> None:
     host, _, port = args.server.partition(":")
     bridge = Bridge(host, int(port or 4096), args.name)
     if not bridge.wait_ready():
-        sys.exit("* could not join the GBA-PK server")
+        # not fatal: the connect loop keeps trying (the game server may still be
+        # starting up, e.g. when both run in the same container)
+        print("* not joined yet - still trying in the background")
 
     if args.bot:
         run_bot(bridge, args.bot, args.discord_channel)
